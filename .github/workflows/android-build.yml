@@ -38,11 +38,11 @@ jobs:
           sdkmanager "platforms;android-35"
           sdkmanager "build-tools;35.0.0"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Generate Gradle Wrapper
-        run: gradle wrapper
+      - name: Verify Gradle Wrapper
+        run: |
+          ls -la
+          ls -la gradle/wrapper
+          cat gradle/wrapper/gradle-wrapper.properties
 
       - name: Make Gradle Wrapper executable
         run: chmod +x ./gradlew
