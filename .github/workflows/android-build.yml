@@ -38,23 +38,13 @@ jobs:
           sdkmanager "platforms;android-35"
           sdkmanager "build-tools;35.0.0"
 
-      - name: Show Android environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          java -version
-          adb version
-          sdkmanager --version
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Check project files
-        run: |
-          echo "Project root:"
-          ls -la
-          echo ""
-          echo "Gradle files:"
-          find . -maxdepth 2 -type f \( -name "gradlew" -o -name "build.gradle*" -o -name "settings.gradle*" \) -print
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper
 
-      - name: Make Gradle executable
+      - name: Make Gradle Wrapper executable
         run: chmod +x ./gradlew
 
       - name: Check Gradle
