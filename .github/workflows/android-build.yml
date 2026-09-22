@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     name: Build AJIYA APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -21,8 +21,38 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_SDK_ROOT/build-tools/35.0.0" >> "$GITHUB_PATH"
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Install Android SDK components
+        run: |
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
+
+      - name: Show Android environment
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          java -version
+          adb version
+          sdkmanager --version
+
+      - name: Check project files
+        run: |
+          echo "Project root:"
+          ls -la
+          echo ""
+          echo "Gradle files:"
+          find . -maxdepth 2 -type f \( -name "gradlew" -o -name "build.gradle*" -o -name "settings.gradle*" \) -print
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
@@ -33,9 +63,9 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Find APK
+      - name: Locate APK
         run: |
-          echo "APK files generated:"
+          echo "Generated APK files:"
           find . -type f -name "*.apk" -print
 
       - name: Upload AJIYA APK
@@ -43,6 +73,5 @@ jobs:
         with:
           name: AJIYA-debug-apk
           path: |
-            app/build/outputs/apk/debug/*.apk
+            **/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          
