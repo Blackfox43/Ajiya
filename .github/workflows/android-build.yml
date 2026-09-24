@@ -40,8 +40,13 @@ jobs:
 
       - name: Verify Gradle Wrapper
         run: |
+          echo "===== PROJECT ROOT ====="
           ls -la
+
+          echo "===== GRADLE WRAPPER ====="
           ls -la gradle/wrapper
+
+          echo "===== WRAPPER PROPERTIES ====="
           cat gradle/wrapper/gradle-wrapper.properties
 
       - name: Make Gradle Wrapper executable
@@ -50,12 +55,40 @@ jobs:
       - name: Check Gradle
         run: ./gradlew --version
 
+      - name: Create Debug Keystore
+        run: |
+          echo "Creating debug keystore..."
+
+          keytool -genkeypair \
+            -v \
+            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          echo "Debug keystore created successfully:"
+          ls -lh "$GITHUB_WORKSPACE/debug.keystore"
+
+      - name: Verify Debug Keystore
+        run: |
+          keytool -list \
+            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
+            -storepass android
+
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          ./gradlew assembleDebug \
+            --stacktrace \
+            --no-daemon \
+            --console=plain
 
       - name: Locate APK
         run: |
-          echo "Generated APK files:"
+          echo "===== GENERATED APK FILES ====="
           find . -type f -name "*.apk" -print
 
       - name: Upload AJIYA APK
