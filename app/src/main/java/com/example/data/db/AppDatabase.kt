@@ -9,6 +9,8 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.Update
 import com.example.data.model.HelperAlertEntity
 import com.example.data.model.LocationPingEntity
@@ -20,25 +22,32 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface UserDao {
     @Query("SELECT * FROM users WHERE id = :userId LIMIT 1")
-    fun getUser(userId: String = "user_default"): Flow<UserEntity?>
+    fun getUser(userId: String = "local_installation"): Flow<UserEntity?>
 
     @Query("SELECT * FROM users WHERE id = :userId LIMIT 1")
-    suspend fun getUserSync(userId: String = "user_default"): UserEntity?
+    suspend fun getUserSync(userId: String = "local_installation"): UserEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertUser(user: UserEntity)
 
     @Query("UPDATE users SET isHelper = :isHelper WHERE id = :userId")
-    suspend fun updateHelperStatus(isHelper: Boolean, userId: String = "user_default")
+    suspend fun updateHelperStatus(isHelper: Boolean, userId: String = "local_installation")
 
     @Query("UPDATE users SET shareLocationOptIn = :optIn WHERE id = :userId")
-    suspend fun updateLocationOptIn(optIn: Boolean, userId: String = "user_default")
+    suspend fun updateLocationOptIn(optIn: Boolean, userId: String = "local_installation")
 
     @Query("UPDATE users SET activeCrisisMode = :mode WHERE id = :userId")
-    suspend fun updateCrisisMode(mode: String, userId: String = "user_default")
+    suspend fun updateCrisisMode(mode: String, userId: String = "local_installation")
+
+    @Query("UPDATE users SET name = :name, phone = :phone, onboardingCompleted = 1 WHERE id = :userId")
+    suspend fun completeProfile(name: String, phone: String, userId: String = "local_installation")
+
+    @Query("UPDATE users SET realPin = :realPin, panicPin = :panicPin, pinSalt = :pinSalt WHERE id = :userId")
+    suspend fun updateSecurePins(realPin: String, panicPin: String, pinSalt: String, userId: String = "local_installation")
 
     @Query("UPDATE users SET hasCompletedConsent = 1 WHERE id = :userId")
-    suspend fun markConsentCompleted(userId: String = "user_default")
+    suspend fun markConsentCompleted(userId: String = "local_installation")
+
 }
 
 @Dao
@@ -145,7 +154,7 @@ interface HelperAlertDao {
         LocationPingEntity::class,
         HelperAlertEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -156,6 +165,14 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun helperAlertDao(): HelperAlertDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE users ADD COLUMN pinSalt TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE users ADD COLUMN onboardingCompleted INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE users ADD COLUMN phoneVerified INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -165,7 +182,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ajiya_safety_db"
-                ).build()
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
                 INSTANCE = instance
                 instance
             }
