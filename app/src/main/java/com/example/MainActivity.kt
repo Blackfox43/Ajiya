@@ -48,6 +48,7 @@ import com.example.ui.screens.DecoyScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MyCircleScreen
+import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.SecurityLegalScreen
 import com.example.ui.screens.SubscriptionPaywallScreen
 import com.example.ui.theme.AjiyaTheme
@@ -75,6 +76,7 @@ fun AjiyaApp(
 ) {
     val currentDestination by viewModel.currentScreen.collectAsState()
     val isDecoyMode by viewModel.isDecoyMode.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
     val context = LocalContext.current
     val configManager = remember { AppConfigManager.getInstance(context) }
     val configState by configManager.configState.collectAsState()
@@ -105,19 +107,28 @@ fun AjiyaApp(
         }
     }
 
-    LaunchedEffect(Unit) {
-        val permissionsList = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.RECORD_AUDIO
-        )
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            permissionsList.add(Manifest.permission.POST_NOTIFICATIONS)
+    LaunchedEffect(currentUser?.onboardingCompleted) {
+        if (currentUser?.onboardingCompleted == true) {
+            val permissionsList = mutableListOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                permissionsList.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            // Microphone is requested later, when a user explicitly enables voice safety.
+            permissionLauncher.launch(permissionsList.toTypedArray())
         }
-        permissionLauncher.launch(permissionsList.toTypedArray())
     }
 
-    if (isDecoyMode) {
+
+    if (currentUser == null) {
+        Box(Modifier.fillMaxSize().background(NavySurface), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Text("Preparing AJIYA…", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    } else if (currentUser?.onboardingCompleted != true) {
+        OnboardingScreen(viewModel = viewModel)
+    } else if (isDecoyMode) {
         DecoyScreen(viewModel = viewModel)
     } else {
         Scaffold(
