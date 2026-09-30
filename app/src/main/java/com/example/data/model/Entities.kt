@@ -7,15 +7,19 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "users")
 data class UserEntity(
-    @PrimaryKey val id: String = "user_default",
-    val phone: String = "+234 803 123 4567",
-    val name: String = "Tunde Adeleke",
+    @PrimaryKey val id: String = "local_installation",
+    val phone: String = "",
+    val name: String = "",
     val isHelper: Boolean = false,
     val shareLocationOptIn: Boolean = true,
-    val panicPin: String = "9999", // Fake PIN for duress unlock
-    val realPin: String = "1234",  // Standard unlock PIN
+    // Stored as PBKDF2 hashes, never plaintext PINs.
+    val panicPin: String = "",
+    val realPin: String = "",
+    val pinSalt: String = "",
     val activeCrisisMode: String = "KIDNAP_SILENT", // KIDNAP_SILENT, ACCIDENT_LOUD, DISASTER_CHECKIN
-    val hasCompletedConsent: Boolean = false
+    val hasCompletedConsent: Boolean = false,
+    val onboardingCompleted: Boolean = false,
+    val phoneVerified: Boolean = false
 )
 
 @Entity(
@@ -24,7 +28,7 @@ data class UserEntity(
 )
 data class TrustedContactEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val userId: String = "user_default",
+    val userId: String = "local_installation",
     val name: String,
     val phone: String,
     val relationship: String = "Family",
@@ -38,7 +42,7 @@ data class TrustedContactEntity(
 )
 data class SosEventEntity(
     @PrimaryKey val id: String, // e.g. "SOS-847291"
-    val userId: String = "user_default",
+    val userId: String = "local_installation",
     val lat: Double,
     val lng: Double,
     val address: String = "Locating address...",
