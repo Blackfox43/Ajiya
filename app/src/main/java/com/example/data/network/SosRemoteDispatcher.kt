@@ -21,9 +21,9 @@ import java.util.concurrent.TimeUnit
  * across Supabase Realtime and Firebase cloud notification channels.
  */
 class SosRemoteDispatcher(
-    private val supabaseUrl: String = "https://ajiya-network.supabase.co",
-    private val supabaseAnonKey: String = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key",
-    private val firebaseFunctionUrl: String = "https://us-central1-ajiya-safety.cloudfunctions.net"
+    private val supabaseUrl: String = "",
+    private val supabaseAnonKey: String = "",
+    private val firebaseFunctionUrl: String = ""
 ) {
     private val tag = "SosRemoteDispatcher"
 
@@ -45,7 +45,11 @@ class SosRemoteDispatcher(
         contacts: List<TrustedContactEntity>
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            Log.d(tag, "Dispatching SOS [${sosEvent.id}] - Mode: ${sosEvent.mode} for user: ${user?.name}")
+            if (supabaseUrl.isBlank() || supabaseAnonKey.isBlank()) {
+                Log.i(tag, "Remote dispatch is not configured; keeping SOS local for offline resilience")
+                return@withContext Result.success(false)
+            }
+            Log.d(tag, "Dispatching SOS [${sosEvent.id}] - Mode: ${sosEvent.mode}")
 
             // 1. Post to Supabase 'sos_events' table
             val eventJson = JSONObject().apply {
