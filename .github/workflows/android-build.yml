@@ -2,14 +2,15 @@ name: AJIYA Android Build
 
 on:
   push:
-    branches:
-      - main
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
   workflow_dispatch:
 
 jobs:
   build:
     name: Build AJIYA APK
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -19,82 +20,38 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Configure Android SDK
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_SDK_ROOT/build-tools/35.0.0" >> "$GITHUB_PATH"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses >/dev/null || true
 
-      - name: Accept Android SDK licenses
+      - name: Ensure env file exists
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then cp .env.example .env; else touch .env; fi
+          fi
 
-      - name: Install Android SDK components
-        run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
+      - name: Build debug APK
+        run: gradle --no-daemon --stacktrace assembleDebug
 
-      - name: Verify Gradle Wrapper
-        run: |
-          echo "===== PROJECT ROOT ====="
-          ls -la
+      - name: Run unit tests
+        run: gradle --no-daemon testDebugUnitTest
+        continue-on-error: true
 
-          echo "===== GRADLE WRAPPER ====="
-          ls -la gradle/wrapper
-
-          echo "===== WRAPPER PROPERTIES ====="
-          cat gradle/wrapper/gradle-wrapper.properties
-
-      - name: Make Gradle Wrapper executable
-        run: chmod +x ./gradlew
-
-      - name: Check Gradle
-        run: ./gradlew --version
-
-      - name: Create Debug Keystore
-        run: |
-          echo "Creating debug keystore..."
-
-          keytool -genkeypair \
-            -v \
-            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
-
-          echo "Debug keystore created successfully:"
-          ls -lh "$GITHUB_WORKSPACE/debug.keystore"
-
-      - name: Verify Debug Keystore
-        run: |
-          keytool -list \
-            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
-            -storepass android
-
-      - name: Build Debug APK
-        run: |
-          ./gradlew assembleDebug \
-            --stacktrace \
-            --no-daemon \
-            --console=plain
-
-      - name: Locate APK
-        run: |
-          echo "===== GENERATED APK FILES ====="
-          find . -type f -name "*.apk" -print
-
-      - name: Upload AJIYA APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: AJIYA-debug-apk
-          path: |
-            **/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 14
