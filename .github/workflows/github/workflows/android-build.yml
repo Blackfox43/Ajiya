@@ -26,7 +26,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
-
+          
       - name: Configure Android SDK path
         run: |
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
