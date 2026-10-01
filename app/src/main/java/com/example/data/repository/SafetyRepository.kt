@@ -12,6 +12,7 @@ import com.example.data.model.SosEventEntity
 import com.example.data.model.TrustedContactEntity
 import com.example.data.model.UserEntity
 import com.example.data.safety.DeviceSafetyHelper
+import com.example.data.security.PinSecurity
 import com.example.data.safety.SosForegroundService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,78 +54,57 @@ class SafetyRepository(
     }
 
     private suspend fun initDefaultDataIfEmpty() {
+        // Production builds must never ship a named demo identity, seeded contacts,
+        // sample alerts, or known PINs. Create only a blank local profile.
         val existingUser = database.userDao().getUserSync()
         if (existingUser == null) {
             database.userDao().upsertUser(
                 UserEntity(
-                    id = "user_default",
-                    name = "Tunde Adeleke",
-                    phone = "+234 803 555 0192",
-                    isHelper = true,
-                    shareLocationOptIn = true,
-                    panicPin = "9999",
-                    realPin = "1234",
+                    id = "local_installation",
+                    name = "",
+                    phone = "",
+                    isHelper = false,
+                    shareLocationOptIn = false,
+                    panicPin = "",
+                    realPin = "",
                     activeCrisisMode = "KIDNAP_SILENT",
-                    hasCompletedConsent = true
+                    hasCompletedConsent = false,
+                    onboardingCompleted = false,
+                    phoneVerified = false
                 )
             )
         }
-
-        val contacts = database.trustedContactDao().getAllContactsSync()
-        if (contacts.isEmpty()) {
-            // Seed 3 trusted circle members as requested
-            database.trustedContactDao().insertContact(
-                TrustedContactEntity(
-                    name = "Amina Adeleke",
-                    phone = "+234 802 334 1100",
-                    relationship = "Spouse / Next of Kin",
-                    isPrimary = true
-                )
-            )
-            database.trustedContactDao().insertContact(
-                TrustedContactEntity(
-                    name = "Dr. Emeka Okafor",
-                    phone = "+234 813 445 2299",
-                    relationship = "Brother / Doctor",
-                    isPrimary = false
-                )
-            )
-            database.trustedContactDao().insertContact(
-                TrustedContactEntity(
-                    name = "Captain Femi Johnson",
-                    phone = "+234 705 667 3388",
-                    relationship = "Close Friend / Security",
-                    isPrimary = false
-                )
-            )
-        }
-
-        // Add sample nearby alert for helper demonstration
-        database.helperAlertDao().insertAlert(
-            HelperAlertEntity(
-                id = "alert_demo_1",
-                anonymizedLabel = "Distress Signal (Anonymized)",
-                distanceMeters = 500,
-                crisisType = "Accident SOS",
-                status = "PENDING",
-                lat = 6.4310,
-                lng = 3.4245
-            )
-        )
+        // Trusted contacts and helper alerts are intentionally empty until the user
+        // explicitly creates/accepts them.
     }
 
     suspend fun verifyPin(pin: String): UnlockResult {
-        val user = database.userDao().getUserSync() ?: return UnlockResult.SUCCESS_REAL
-        return when (pin) {
-            user.realPin -> UnlockResult.SUCCESS_REAL
-            user.panicPin -> UnlockResult.DURESS_DECOY
-            else -> UnlockResult.INCORRECT
-        }
+        val user = database.userDao().getUserSync() ?: return UnlockResult.INCORRECT
+        if (PinSecurity.verify(pin, user.panicPin, user.pinSalt)) return UnlockResult.DURESS_DECOY
+        if (PinSecurity.verify(pin, user.realPin, user.pinSalt)) return UnlockResult.SUCCESS_REAL
+        return UnlockResult.INCORRECT
     }
 
     suspend fun updatePins(realPin: String, panicPin: String) {
         val current = database.userDao().getUserSync() ?: return
-        database.userDao().upsertUser(current.copy(realPin = realPin, panicPin = panicPin))
+        val salt = PinSecurity.newSalt()
+        database.userDao().updateSecurePins(
+            realPin = PinSecurity.hash(realPin, salt),
+            panicPin = PinSecurity.hash(panicPin, salt),
+            pinSalt = salt
+        )
+    }
+
+    suspend fun completeOnboarding(name: String, phone: String, realPin: String, panicPin: String) {
+        database.userDao().getUserSync() ?: return
+        val salt = PinSecurity.newSalt()
+        database.userDao().completeProfile(name.trim(), phone.trim())
+        database.userDao().updateSecurePins(
+            realPin = PinSecurity.hash(realPin, salt),
+            panicPin = PinSecurity.hash(panicPin, salt),
+            pinSalt = salt
+        )
+        database.userDao().markConsentCompleted()
     }
 
     suspend fun updateHelperToggle(isHelper: Boolean) {
@@ -178,7 +158,7 @@ class SafetyRepository(
 
         val newSos = SosEventEntity(
             id = sosId,
-            userId = user?.id ?: "user_default",
+            userId = user?.id ?: "local_installation",
             lat = coords.first,
             lng = coords.second,
             address = address,
@@ -221,7 +201,7 @@ class SafetyRepository(
 
         val tripEvent = SosEventEntity(
             id = sosId,
-            userId = user?.id ?: "user_default",
+            userId = user?.id ?: "local_installation",
             lat = coords.first,
             lng = coords.second,
             address = address,
@@ -255,32 +235,29 @@ class SafetyRepository(
                 delay(10_000L) // GPS tracking every 10 seconds
                 step++
 
-                // Try real location, or simulate subtle path progression
+                // Try real location; never fabricate emergency telemetry
                 val realCoords = try {
                     deviceHelper.getCurrentCoordinates()
                 } catch (e: Exception) {
                     null
                 }
 
-                if (realCoords != null && realCoords != Pair(6.4281, 3.4219)) {
+                if (realCoords != null) {
                     currentLat = realCoords.first
                     currentLng = realCoords.second
-                } else {
-                    // Small simulated GPS movement along route
-                    currentLat += (Math.random() - 0.5) * 0.0004
-                    currentLng += (Math.random() - 0.5) * 0.0004
-                }
-
-                database.locationPingDao().insertPing(
-                    LocationPingEntity(
-                        sosId = sosId,
-                        lat = currentLat,
-                        lng = currentLng,
-                        accuracy = 3.5f + (Math.random().toFloat() * 2f),
-                        speed = 1.2f + (step * 0.5f),
-                        timestamp = System.currentTimeMillis()
+                    database.locationPingDao().insertPing(
+                        LocationPingEntity(
+                            sosId = sosId,
+                            lat = currentLat,
+                            lng = currentLng,
+                            accuracy = 0f,
+                            speed = 0f,
+                            timestamp = System.currentTimeMillis()
+                        )
                     )
-                )
+                } else {
+                    Log.w("SafetyRepository", "No real location fix available; skipping telemetry ping")
+                }
             }
         }
     }
