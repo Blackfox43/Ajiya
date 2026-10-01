@@ -230,7 +230,7 @@ fun SubscriptionPaywallScreen(
                         )
                         FeatureRow(
                             icon = Icons.Default.Pin,
-                            title = "Panic Decoy PIN (9999)",
+                            title = "Panic Decoy PIN",
                             desc = "Shows mundane checklist screen while secretly dispatching real silent SOS."
                         )
                         FeatureRow(
