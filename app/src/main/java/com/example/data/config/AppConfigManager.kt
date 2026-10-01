@@ -8,11 +8,11 @@ import kotlinx.coroutines.flow.asStateFlow
 
 data class AppConfigState(
     val isProductionMode: Boolean = false,
-    val termiiApiKey: String = "TLR_TERMI_KEY_LIVE_MOCK",
+    val termiiApiKey: String = "",
     val termiiSenderId: String = "AJIYA_ALERT",
-    val paystackPublicKey: String = "pk_test_ajiya_live_mock_paystack_key_999",
-    val supabaseUrl: String = "https://mock-ajiya.supabase.co",
-    val supabaseAnonKey: String = "mock_key_prod",
+    val paystackPublicKey: String = "",
+    val supabaseUrl: String = "",
+    val supabaseAnonKey: String = "",
     val emergencyHotline: String = "112",
     val backgroundLocationConsentGranted: Boolean = false,
     val smsConsentGranted: Boolean = false
@@ -33,11 +33,11 @@ class AppConfigManager(context: Context) {
     private fun loadConfig(): AppConfigState {
         return AppConfigState(
             isProductionMode = prefs.getBoolean("is_production_mode", false),
-            termiiApiKey = prefs.getString("termii_api_key", "TLR_TERMI_KEY_LIVE_MOCK") ?: "TLR_TERMI_KEY_LIVE_MOCK",
+            termiiApiKey = prefs.getString("termii_api_key", "") ?: "",
             termiiSenderId = prefs.getString("termii_sender_id", "AJIYA_ALERT") ?: "AJIYA_ALERT",
-            paystackPublicKey = prefs.getString("paystack_public_key", "pk_test_ajiya_live_mock_paystack_key_999") ?: "pk_test_ajiya_live_mock_paystack_key_999",
-            supabaseUrl = prefs.getString("supabase_url", "https://mock-ajiya.supabase.co") ?: "https://mock-ajiya.supabase.co",
-            supabaseAnonKey = prefs.getString("supabase_anon_key", "mock_key_prod") ?: "mock_key_prod",
+            paystackPublicKey = prefs.getString("paystack_public_key", "") ?: "",
+            supabaseUrl = prefs.getString("supabase_url", "") ?: "",
+            supabaseAnonKey = prefs.getString("supabase_anon_key", "") ?: "",
             emergencyHotline = prefs.getString("emergency_hotline", "112") ?: "112",
             backgroundLocationConsentGranted = prefs.getBoolean("bg_location_consent", false),
             smsConsentGranted = prefs.getBoolean("sms_consent", false)
@@ -45,11 +45,9 @@ class AppConfigManager(context: Context) {
     }
 
     fun setProductionMode(isProd: Boolean) {
-        val defaultPaystack = if (isProd) "pk_live_ajiya_production_key_001" else "pk_test_ajiya_live_mock_paystack_key_999"
-        prefs.edit()
-            .putBoolean("is_production_mode", isProd)
-            .putString("paystack_public_key", defaultPaystack)
-            .apply()
+        // Environment selection must never manufacture credentials. Real keys are
+        // supplied through the release configuration/backend provisioning process.
+        prefs.edit().putBoolean("is_production_mode", isProd).apply()
         _configState.value = loadConfig()
     }
 
