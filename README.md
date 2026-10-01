@@ -124,3 +124,13 @@ To configure SMS dispatch via Termii for offline cellular reliability:
 > *"This app is for consensual safety. You can only track people who installed app and approved you. Misuse is prohibited."*
 
 AJIYA complies with global privacy regulations (NDPR, GDPR, CCPA). Location data is encrypted locally using Android Keystore and AES-256 before transmission over TLS 1.3.
+
+## Cloud build (GitHub Actions)
+
+This repository now includes `.github/workflows/android-build.yml`. It builds the debug APK in GitHub Actions using Gradle 9.3.1 directly, so a local `gradle-wrapper.jar` is not required. See `GITHUB_ACTIONS_BUILD.md` for the exact steps.
+
+
+## Phase 2 — Identity & Security
+This build adds first-run onboarding, local profile setup, secure PBKDF2 PIN hashing, a duress PIN, explicit safety consent, and a Room v1→v2 migration. Phone verification is intentionally not marked complete until the production OTP/backend flow is connected.
+
+See `PHASE_2_IDENTITY_SECURITY.md`.
