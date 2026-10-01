@@ -29,11 +29,8 @@ class GeofenceSafetyManager(private val context: Context) {
     private val geofencingClient: GeofencingClient = LocationServices.getGeofencingClient(context)
 
     companion object {
-        val DEFAULT_SAFE_ZONES = listOf(
-            SafeZone("zone_home", "Home Safe Zone", 6.4281, 3.4219, 250f),
-            SafeZone("zone_work", "Workplace / Campus", 6.4500, 3.4000, 300f),
-            SafeZone("zone_shelter", "Victoria Island Safety Haven", 6.4350, 3.4300, 400f)
-        )
+        // No hard-coded personal places. Safe zones are created explicitly by the user.
+        val DEFAULT_SAFE_ZONES = emptyList<SafeZone>()
     }
 
     private val geofencePendingIntent: PendingIntent by lazy {

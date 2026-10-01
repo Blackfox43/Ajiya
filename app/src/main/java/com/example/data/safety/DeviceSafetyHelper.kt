@@ -96,15 +96,14 @@ class DeviceSafetyHelper(private val context: Context) {
                 if (lat != null && lng != null) {
                     Pair(lat, lng)
                 } else {
-                    // Safe reference default (e.g. Victoria Island / Marina / Lagos axis or user region)
-                    Pair(6.4281, 3.4219)
+                    throw IllegalStateException("A real location fix is unavailable")
                 }
             } catch (e: SecurityException) {
                 Log.w("DeviceSafetyHelper", "Location permission not granted: ${e.message}")
-                Pair(6.4281, 3.4219)
+                throw e
             } catch (e: Exception) {
                 Log.w("DeviceSafetyHelper", "Error getting location: ${e.message}")
-                Pair(6.4281, 3.4219)
+                throw IllegalStateException("Unable to obtain a real location fix", e)
             }
         }
     }
@@ -125,10 +124,11 @@ class DeviceSafetyHelper(private val context: Context) {
                     val parts = listOf(thoroughfare, locality, adminArea).filter { it.isNotBlank() }
                     if (parts.isNotEmpty()) parts.joinToString(", ") else address.getAddressLine(0) ?: "Lat: %.4f, Lng: %.4f".format(lat, lng)
                 } else {
-                    "Ahmadu Bello Way, Victoria Island, Lagos"
+                    "Location available, address unavailable"
                 }
             } catch (e: Exception) {
-                "Ahmadu Bello Way, Victoria Island, Lagos"
+                Log.w("DeviceSafetyHelper", "Reverse geocoding unavailable: ${e.message}")
+                "Location available, address unavailable"
             }
         }
     }

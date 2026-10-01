@@ -100,7 +100,7 @@ class BatteryDeathReceiver : BroadcastReceiver() {
 
                 // 1. Send POST to /last-location on remote backend
                 remoteDispatcher.sendLastLocationOnBatteryDeath(
-                    userId = user?.id ?: "user_default",
+                    userId = user?.id ?: "local_installation",
                     lat = coords.first,
                     lng = coords.second,
                     address = address,

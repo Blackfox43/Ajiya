@@ -336,20 +336,10 @@ class SosForegroundService : Service() {
             var event = database.sosEventDao().getById(sosId)
 
             if (event == null) {
-                // In case event was not pre-inserted, create it
-                event = SosEventEntity(
-                    id = sosId,
-                    userId = user?.id ?: "user_default",
-                    lat = 6.4281,
-                    lng = 3.4219,
-                    address = "Victoria Island, Lagos",
-                    audioUrl = null,
-                    battery = 85,
-                    status = "active",
-                    mode = mode,
-                    createdAt = System.currentTimeMillis()
-                )
-                database.sosEventDao().insertEvent(event)
+                // The repository must create the event with a real GPS fix first.
+                // Never fabricate coordinates inside the emergency service.
+                Log.w(TAG, "SOS event $sosId missing from local DB; refusing fabricated location")
+                return@launch
             }
 
             // Dispatch to Supabase and Firebase Cloud Notification
