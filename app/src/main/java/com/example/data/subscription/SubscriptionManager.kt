@@ -152,19 +152,24 @@ class SubscriptionManager(private val context: Context) {
     }
 
     /**
-     * Simulates or verifies Paystack transaction and activates the subscription.
+     * Client-side payment completion is intentionally non-authoritative.
+     * Subscription entitlements must only be activated after server-side
+     * verification of the Paystack/RevenueCat transaction.
      */
     fun completePaymentVerification(tier: SubscriptionTier, reference: String) {
+        Log.w(tag, "Ignoring client-only payment completion for ${tier.title}; reference=$reference. Server verification required.")
+    }
+
+    /** Called only after the backend has verified the transaction and entitlement. */
+    fun applyServerVerifiedEntitlement(tier: SubscriptionTier, reference: String) {
         prefs.edit()
             .putBoolean("is_subscribed", true)
             .putString("active_tier", tier.name)
             .putString("last_payment_ref", reference)
             .putLong("subscribed_at", System.currentTimeMillis())
             .apply()
-
         _currentTier.value = tier
         _isSubscribed.value = true
-        Log.i(tag, "Activated subscription tier: ${tier.title} with ref: $reference")
     }
 
     /**
@@ -174,10 +179,9 @@ class SubscriptionManager(private val context: Context) {
     suspend fun purchaseViaRevenueCat(tier: SubscriptionTier): Boolean = withContext(Dispatchers.IO) {
         try {
             Log.i(tag, "RevenueCat Purchase initiated for product: ${tier.revenueCatProductId}")
-            // In a live Play Store environment, Purchases.sharedInstance.purchaseWith(...) is called.
-            // Synchronize entitlement locally:
-            completePaymentVerification(tier, "RC_IAP_${System.currentTimeMillis()}")
-            true
+            // Real RevenueCat SDK purchase + entitlement verification must be wired here.
+            // Never grant an entitlement merely because the client-side flow completed.
+            false
         } catch (e: Exception) {
             Log.e(tag, "RevenueCat purchase failed: ${e.message}")
             false
