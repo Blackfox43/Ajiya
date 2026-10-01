@@ -144,9 +144,15 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
     fun refreshLocationAndAddress() {
         viewModelScope.launch {
             _batteryLevel.value = deviceHelper.getBatteryLevel()
-            val coords = deviceHelper.getCurrentCoordinates()
-            val addr = deviceHelper.reverseGeocode(coords.first, coords.second)
-            _currentAddress.value = addr
+            runCatching {
+                val coords = deviceHelper.getCurrentCoordinates()
+                deviceHelper.reverseGeocode(coords.first, coords.second)
+            }.onSuccess { address ->
+                _currentAddress.value = address
+            }.onFailure {
+                _currentAddress.value = "Location unavailable"
+                _statusNotice.value = "A real GPS fix is required for location sharing."
+            }
         }
     }
 
@@ -247,22 +253,36 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun verifyPinInput(pin: String): UnlockResult {
-        val panic = currentUser.value?.panicPin ?: "9999"
-        val real = currentUser.value?.realPin ?: "1234"
-        return when (pin) {
-            panic, "9999" -> {
-                _isDecoyMode.value = true
-                // REQUIREMENT: if pin == 9999 -> show fake empty screen + trigger real SOS in background
-                viewModelScope.launch {
-                    repository.triggerSos("KIDNAP_SILENT")
+        var result = UnlockResult.INCORRECT
+        runBlockingVerify@ run {
+            // Verification is performed against the PBKDF2 hashes stored locally.
+            // The UI call remains synchronous for the existing decoy flow.
+            val user = currentUser.value ?: return@runBlockingVerify
+            val salt = user.pinSalt
+            if (salt.isBlank()) return@runBlockingVerify
+            val panic = com.example.data.security.PinSecurity.verify(pin, user.panicPin, salt)
+            val real = com.example.data.security.PinSecurity.verify(pin, user.realPin, salt)
+            result = when {
+                panic -> {
+                    _isDecoyMode.value = true
+                    viewModelScope.launch { runCatching { repository.triggerSos("KIDNAP_SILENT") } }
+                    UnlockResult.DURESS_DECOY
                 }
-                UnlockResult.DURESS_DECOY
+                real -> {
+                    _isDecoyMode.value = false
+                    UnlockResult.SUCCESS_REAL
+                }
+                else -> UnlockResult.INCORRECT
             }
-            real -> {
-                _isDecoyMode.value = false
-                UnlockResult.SUCCESS_REAL
-            }
-            else -> UnlockResult.INCORRECT
+        }
+        return result
+    }
+
+    fun completeOnboarding(name: String, phone: String, realPin: String, duressPin: String) {
+        viewModelScope.launch {
+            runCatching { repository.completeOnboarding(name, phone, realPin, duressPin) }
+                .onSuccess { _statusNotice.value = "AJIYA is ready. Configure your Trusted Circle next." }
+                .onFailure { _statusNotice.value = "Could not complete setup. Please try again." }
         }
     }
 
