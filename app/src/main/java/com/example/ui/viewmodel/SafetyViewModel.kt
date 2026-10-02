@@ -254,7 +254,7 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun verifyPinInput(pin: String): UnlockResult {
         var result = UnlockResult.INCORRECT
-        runBlockingVerify@ run {
+        run runBlockingVerify@{
             // Verification is performed against the PBKDF2 hashes stored locally.
             // The UI call remains synchronous for the existing decoy flow.
             val user = currentUser.value ?: return@runBlockingVerify
