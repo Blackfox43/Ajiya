@@ -158,7 +158,7 @@ class DeviceSafetyHelper(private val context: Context) {
         try {
             val audioDir = File(context.cacheDir, "emergency_recordings")
             if (!audioDir.exists()) audioDir.mkdirs()
-            val outputFile = File(audioDir, "sos_\( {sosId}_ \){System.currentTimeMillis()}.m4a")
+            val outputFile = File(audioDir, "sos_" + sosId + "_" + System.currentTimeMillis() + ".m4a")
             currentRecordingFile = outputFile
 
             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
