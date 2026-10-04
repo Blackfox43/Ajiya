@@ -1,7 +1,6 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
-import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
@@ -107,7 +106,6 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
     private val _statusNotice = MutableStateFlow<String?>(null)
     val statusNotice: StateFlow<String?> = _statusNotice.asStateFlow()
 
-    // Premium Feature States
     private val _isShakeEnabled = MutableStateFlow(true)
     val isShakeEnabled: StateFlow<Boolean> = _isShakeEnabled.asStateFlow()
 
@@ -124,7 +122,6 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
     val safeZones: StateFlow<List<SafeZone>> = _safeZones.asStateFlow()
 
     init {
-        // Observe active SOS to monitor its pings
         viewModelScope.launch {
             activeSos.collectLatest { sos ->
                 if (sos != null) {
@@ -136,8 +133,6 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
-
-        // Refresh location and address
         refreshLocationAndAddress()
     }
 
@@ -145,13 +140,13 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _batteryLevel.value = deviceHelper.getBatteryLevel()
             runCatching {
-                val coords = deviceHelper.getCurrentCoordinates()
+                val coords = deviceHelper.getCurrentCoordinatesOrNull()
+                    ?: error("no fix")
                 deviceHelper.reverseGeocode(coords.first, coords.second)
             }.onSuccess { address ->
                 _currentAddress.value = address
             }.onFailure {
                 _currentAddress.value = "Location unavailable"
-                _statusNotice.value = "A real GPS fix is required for location sharing."
             }
         }
     }
@@ -162,17 +157,31 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun triggerSos(crisisMode: String? = null) {
         viewModelScope.launch {
-            val event = repository.triggerSos(crisisMode)
-            _statusNotice.value = "EMERGENCY SOS ACTIVATED (${event.mode}). Live GPS streaming & audio recording started."
-            refreshLocationAndAddress()
+            runCatching { repository.triggerSos(crisisMode) }
+                .onSuccess { event ->
+                    _statusNotice.value =
+                        "EMERGENCY SOS ACTIVATED (${event.mode}). Tracking started."
+                    refreshLocationAndAddress()
+                }
+                .onFailure { e ->
+                    _statusNotice.value =
+                        "Could not start SOS: ${e.message ?: "unknown error"}"
+                }
         }
     }
 
     fun triggerRiskyTrip() {
         viewModelScope.launch {
-            val event = repository.triggerRiskyTrip()
-            _statusNotice.value = "1-Hour Risky Trip tracking activated. Automatically stops in 60m."
-            refreshLocationAndAddress()
+            runCatching { repository.triggerRiskyTrip() }
+                .onSuccess {
+                    _statusNotice.value =
+                        "1-Hour Risky Trip tracking activated. Auto-stops in 60m."
+                    refreshLocationAndAddress()
+                }
+                .onFailure { e ->
+                    _statusNotice.value =
+                        "Could not start trip: ${e.message ?: "unknown error"}"
+                }
         }
     }
 
@@ -255,8 +264,6 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
     fun verifyPinInput(pin: String): UnlockResult {
         var result = UnlockResult.INCORRECT
         run runBlockingVerify@{
-            // Verification is performed against the PBKDF2 hashes stored locally.
-            // The UI call remains synchronous for the existing decoy flow.
             val user = currentUser.value ?: return@runBlockingVerify
             val salt = user.pinSalt
             if (salt.isBlank()) return@runBlockingVerify
@@ -265,7 +272,9 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
             result = when {
                 panic -> {
                     _isDecoyMode.value = true
-                    viewModelScope.launch { runCatching { repository.triggerSos("KIDNAP_SILENT") } }
+                    viewModelScope.launch {
+                        runCatching { repository.triggerSos("KIDNAP_SILENT") }
+                    }
                     UnlockResult.DURESS_DECOY
                 }
                 real -> {
@@ -281,8 +290,12 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
     fun completeOnboarding(name: String, phone: String, realPin: String, duressPin: String) {
         viewModelScope.launch {
             runCatching { repository.completeOnboarding(name, phone, realPin, duressPin) }
-                .onSuccess { _statusNotice.value = "AJIYA is ready. Configure your Trusted Circle next." }
-                .onFailure { _statusNotice.value = "Could not complete setup. Please try again." }
+                .onSuccess {
+                    _statusNotice.value = "AJIYA is ready. Configure your Trusted Circle next."
+                }
+                .onFailure {
+                    _statusNotice.value = "Could not complete setup. Please try again."
+                }
         }
     }
 
@@ -305,7 +318,7 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
         if (!_isShakeEnabled.value) return
         viewModelScope.launch {
             _statusNotice.value = "Shake detected! Initiating Emergency SOS..."
-            repository.triggerSos("KIDNAP_SILENT")
+            runCatching { repository.triggerSos("KIDNAP_SILENT") }
             refreshLocationAndAddress()
         }
     }
@@ -314,7 +327,11 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
         _isVoiceEnabled.value = enabled
         if (enabled) {
             val started = voiceKeywordDetector.startListening()
-            _statusNotice.value = if (started) "Voice trigger listening for \"Help\", \"Emergency\", \"Ajiya\"" else "Voice hardware unavailable"
+            _statusNotice.value = if (started) {
+                "Voice trigger listening for \"Help\", \"Emergency\", \"Ajiya\""
+            } else {
+                "Voice hardware unavailable"
+            }
         } else {
             voiceKeywordDetector.stopListening()
             _statusNotice.value = "Voice trigger paused"
@@ -324,8 +341,9 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
     private fun onVoiceKeywordDetected(keyword: String) {
         if (!_isVoiceEnabled.value) return
         viewModelScope.launch {
-            _statusNotice.value = "Emergency voice keyword \"$keyword\" detected! Triggering SOS..."
-            repository.triggerSos("KIDNAP_SILENT")
+            _statusNotice.value =
+                "Emergency voice keyword \"$keyword\" detected! Triggering SOS..."
+            runCatching { repository.triggerSos("KIDNAP_SILENT") }
             refreshLocationAndAddress()
         }
     }
@@ -336,14 +354,16 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun simulate1PercentBatteryDeath() {
         viewModelScope.launch {
-            _statusNotice.value = "Triggering critical 1% battery beacon POST to /last-location..."
+            _statusNotice.value =
+                "Triggering critical 1% battery beacon POST to /last-location..."
             BatteryDeathReceiver.triggerBatteryDeathBeacon(getApplication(), batteryLevel = 1)
         }
     }
 
     fun simulateGeofenceTransition(zoneName: String, isExit: Boolean) {
         GeofenceBroadcastReceiver.simulateTransition(getApplication(), zoneName, isExit)
-        _statusNotice.value = if (isExit) "Simulated Exit from $zoneName" else "Simulated Arrival at $zoneName"
+        _statusNotice.value =
+            if (isExit) "Simulated Exit from $zoneName" else "Simulated Arrival at $zoneName"
     }
 
     fun initializePaystackPayment(
