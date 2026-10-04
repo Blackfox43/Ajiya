@@ -19,7 +19,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,7 +45,6 @@ class SafetyRepository(
     private var riskyTripTimerJob: Job? = null
 
     init {
-        // Initialize default user and circle if needed
         scope.launch(Dispatchers.IO) {
             initDefaultDataIfEmpty()
             purgeOldHistory()
@@ -74,8 +72,6 @@ class SafetyRepository(
                 )
             )
         }
-        // Trusted contacts and helper alerts are intentionally empty until the user
-        // explicitly creates/accepts them.
     }
 
     suspend fun verifyPin(pin: String): UnlockResult {
@@ -135,23 +131,23 @@ class SafetyRepository(
     }
 
     /**
-     * Trigger SOS:
-     * a) Start background GPS tracking every 10 seconds
-     * b) Record 30 sec audio in background
-     * c) Formulate SMS/Push to Trusted Circle: "[Name] needs help! Live location: [link]"
-     * d) Show SOS on nearby Safe Circle users within 2km
-     * e) Share battery level + last known address
+     * Trigger SOS. Does not crash when GPS is unavailable.
      */
     suspend fun triggerSos(customMode: String? = null): SosEventEntity = withContext(Dispatchers.IO) {
         val user = database.userDao().getUserSync()
         val mode = customMode ?: user?.activeCrisisMode ?: "KIDNAP_SILENT"
         val battery = deviceHelper.getBatteryLevel()
-        val coords = deviceHelper.getCurrentCoordinates()
-        val address = deviceHelper.reverseGeocode(coords.first, coords.second)
+        val coords = deviceHelper.getCurrentCoordinatesOrNull()
+        val lat = coords?.first ?: 0.0
+        val lng = coords?.second ?: 0.0
+        val address = if (coords == null) {
+            "Location unavailable"
+        } else {
+            deviceHelper.reverseGeocode(lat, lng)
+        }
 
         val sosId = "SOS-${(100000 + (Math.random() * 900000).toInt())}"
 
-        // Vibrate for feedback UNLESS Silent Kidnap mode
         if (mode != "KIDNAP_SILENT") {
             triggerHapticFeedback()
         }
@@ -159,8 +155,8 @@ class SafetyRepository(
         val newSos = SosEventEntity(
             id = sosId,
             userId = user?.id ?: "local_installation",
-            lat = coords.first,
-            lng = coords.second,
+            lat = lat,
+            lng = lng,
             address = address,
             audioUrl = null,
             battery = battery,
@@ -171,39 +167,44 @@ class SafetyRepository(
 
         database.sosEventDao().insertEvent(newSos)
 
-        // Insert initial ping
-        database.locationPingDao().insertPing(
-            LocationPingEntity(
-                sosId = sosId,
-                lat = coords.first,
-                lng = coords.second,
-                accuracy = 4.5f,
-                speed = 0.0f,
-                timestamp = System.currentTimeMillis()
+        if (coords != null) {
+            database.locationPingDao().insertPing(
+                LocationPingEntity(
+                    sosId = sosId,
+                    lat = lat,
+                    lng = lng,
+                    accuracy = 4.5f,
+                    speed = 0.0f,
+                    timestamp = System.currentTimeMillis()
+                )
             )
-        )
+        }
 
-        // Start ongoing SOS Foreground Service (background GPS every 10s, 30s MediaRecorder, Supabase/Firebase event broadcast)
         SosForegroundService.start(context, sosId, mode)
-
         newSos
     }
 
     /**
-     * Consensual Risky Trip (1 Hour Live Location Share)
+     * Consensual Risky Trip (1 Hour Live Location Share).
      */
     suspend fun triggerRiskyTrip(): SosEventEntity = withContext(Dispatchers.IO) {
         val user = database.userDao().getUserSync()
         val battery = deviceHelper.getBatteryLevel()
-        val coords = deviceHelper.getCurrentCoordinates()
-        val address = deviceHelper.reverseGeocode(coords.first, coords.second)
+        val coords = deviceHelper.getCurrentCoordinatesOrNull()
+        val lat = coords?.first ?: 0.0
+        val lng = coords?.second ?: 0.0
+        val address = if (coords == null) {
+            "Location unavailable"
+        } else {
+            deviceHelper.reverseGeocode(lat, lng)
+        }
         val sosId = "TRIP-${(100000 + (Math.random() * 900000).toInt())}"
 
         val tripEvent = SosEventEntity(
             id = sosId,
             userId = user?.id ?: "local_installation",
-            lat = coords.first,
-            lng = coords.second,
+            lat = lat,
+            lng = lng,
             address = address,
             audioUrl = null,
             battery = battery,
@@ -215,7 +216,6 @@ class SafetyRepository(
         database.sosEventDao().insertEvent(tripEvent)
         SosForegroundService.start(context, sosId, "RISKY_TRIP")
 
-        // Auto-stop after 1 hour (3600 seconds)
         riskyTripTimerJob?.cancel()
         riskyTripTimerJob = scope.launch(Dispatchers.IO) {
             delay(3600_000L) // 1 hour
@@ -230,18 +230,9 @@ class SafetyRepository(
         pingTrackingJob = scope.launch(Dispatchers.IO) {
             var currentLat = initialLat
             var currentLng = initialLng
-            var step = 0
             while (isActive) {
-                delay(10_000L) // GPS tracking every 10 seconds
-                step++
-
-                // Try real location; never fabricate emergency telemetry
-                val realCoords = try {
-                    deviceHelper.getCurrentCoordinates()
-                } catch (e: Exception) {
-                    null
-                }
-
+                delay(10_000L)
+                val realCoords = deviceHelper.getCurrentCoordinatesOrNull()
                 if (realCoords != null) {
                     currentLat = realCoords.first
                     currentLng = realCoords.second
@@ -273,7 +264,7 @@ class SafetyRepository(
     }
 
     suspend fun purgeOldHistory() = withContext(Dispatchers.IO) {
-        val cutoff = System.currentTimeMillis() - (24 * 60 * 60 * 1000L) // 24 hours
+        val cutoff = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
         database.locationPingDao().deleteOlderThan(cutoff)
         database.sosEventDao().deleteResolvedOlderThan(cutoff)
     }
@@ -289,10 +280,24 @@ class SafetyRepository(
         return database.locationPingDao().getPingsForSos(sosId)
     }
 
+    fun getSmsBroadcastText(): String {
+        // Used by Circle "Preview emergency SMS"
+        // Kept simple and local; live SOS builds a richer message in the service.
+        return try {
+            val userName = kotlinx.coroutines.runBlocking {
+                database.userDao().getUserSync()?.name?.ifBlank { "AJIYA user" } ?: "AJIYA user"
+            }
+            "AJIYA EMERGENCY: $userName needs help! Location will attach when GPS is available. Live link: https://ajiya.network/live/SOS-DEMO"
+        } catch (e: Exception) {
+            "AJIYA EMERGENCY: Help needed. Live link: https://ajiya.network/live/SOS-DEMO"
+        }
+    }
+
     private fun triggerHapticFeedback() {
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                val vibratorManager =
+                    context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 vibratorManager?.defaultVibrator?.vibrate(
                     VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE)
                 )
