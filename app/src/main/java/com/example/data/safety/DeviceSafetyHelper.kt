@@ -52,9 +52,10 @@ class DeviceSafetyHelper(private val context: Context) {
     }
 
     /**
-     * Gets real device GPS location or returns realistic safe fallback coordinates
+     * Best-effort GPS fix. Returns null when no real fix is available.
+     * Never throws for a missing fix (callers decide how to handle it).
      */
-    suspend fun getCurrentCoordinates(): Pair<Double, Double> {
+    suspend fun getCurrentCoordinatesOrNull(): Pair<Double, Double>? {
         return withContext(Dispatchers.IO) {
             try {
                 var lat: Double? = null
@@ -66,7 +67,6 @@ class DeviceSafetyHelper(private val context: Context) {
                         Priority.PRIORITY_HIGH_ACCURACY,
                         cts.token
                     )
-                    // Wait briefly for location
                     val location: Location? = com.google.android.gms.tasks.Tasks.await(
                         locationTask,
                         3000,
@@ -81,30 +81,40 @@ class DeviceSafetyHelper(private val context: Context) {
                 }
 
                 if (lat == null || lng == null) {
-                    val lastTask = fusedLocationClient.lastLocation
-                    val lastLoc: Location? = com.google.android.gms.tasks.Tasks.await(
-                        lastTask,
-                        1500,
-                        java.util.concurrent.TimeUnit.MILLISECONDS
-                    )
-                    if (lastLoc != null) {
-                        lat = lastLoc.latitude
-                        lng = lastLoc.longitude
+                    try {
+                        val lastTask = fusedLocationClient.lastLocation
+                        val lastLoc: Location? = com.google.android.gms.tasks.Tasks.await(
+                            lastTask,
+                            1500,
+                            java.util.concurrent.TimeUnit.MILLISECONDS
+                        )
+                        if (lastLoc != null) {
+                            lat = lastLoc.latitude
+                            lng = lastLoc.longitude
+                        }
+                    } catch (e: Exception) {
+                        Log.w("DeviceSafetyHelper", "lastLocation failed: ${e.message}")
                     }
                 }
 
-                if (lat != null && lng != null) {
-                    Pair(lat, lng)
-                } else {
-                    throw IllegalStateException("A real location fix is unavailable")
-                }
+                if (lat != null && lng != null) Pair(lat, lng) else null
             } catch (e: SecurityException) {
                 Log.w("DeviceSafetyHelper", "Location permission not granted: ${e.message}")
-                throw e
+                null
             } catch (e: Exception) {
                 Log.w("DeviceSafetyHelper", "Error getting location: ${e.message}")
-                throw IllegalStateException("Unable to obtain a real location fix", e)
+                null
             }
+        }
+    }
+
+    /**
+     * Backward-compatible helper. Prefer getCurrentCoordinatesOrNull().
+     */
+    suspend fun getCurrentCoordinates(): Pair<Double, Double> {
+        return getCurrentCoordinatesOrNull()
+            ?: throw IllegalStateException("A real location fix is unavailable")
+    }
         }
     }
 
