@@ -18,7 +18,6 @@ import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.IOException
 import java.util.Locale
 
 class DeviceSafetyHelper(private val context: Context) {
@@ -33,7 +32,7 @@ class DeviceSafetyHelper(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
 
     /**
-     * Reads system battery percentage
+     * Reads system battery percentage.
      */
     fun getBatteryLevel(): Int {
         return try {
@@ -44,7 +43,7 @@ class DeviceSafetyHelper(private val context: Context) {
             if (level >= 0 && scale > 0) {
                 ((level.toFloat() / scale.toFloat()) * 100).toInt()
             } else {
-                84 // fallback realistic battery
+                84 // fallback
             }
         } catch (e: Exception) {
             84
@@ -77,7 +76,10 @@ class DeviceSafetyHelper(private val context: Context) {
                         lng = location.longitude
                     }
                 } catch (e: Exception) {
-                    Log.w("DeviceSafetyHelper", "Fused location failed, trying lastLocation: ${e.message}")
+                    Log.w(
+                        "DeviceSafetyHelper",
+                        "Fused location failed, trying lastLocation: ${e.message}"
+                    )
                 }
 
                 if (lat == null || lng == null) {
@@ -109,17 +111,15 @@ class DeviceSafetyHelper(private val context: Context) {
     }
 
     /**
-     * Backward-compatible helper. Prefer getCurrentCoordinatesOrNull().
+     * Backward-compatible helper. Prefer [getCurrentCoordinatesOrNull] for SOS paths.
      */
     suspend fun getCurrentCoordinates(): Pair<Double, Double> {
         return getCurrentCoordinatesOrNull()
             ?: throw IllegalStateException("A real location fix is unavailable")
     }
-        }
-    }
 
     /**
-     * Reverse geocodes coordinates to street address
+     * Reverse geocodes coordinates to a short street-style address.
      */
     suspend fun reverseGeocode(lat: Double, lng: Double): String {
         return withContext(Dispatchers.IO) {
@@ -132,7 +132,11 @@ class DeviceSafetyHelper(private val context: Context) {
                     val locality = address.locality ?: address.subAdminArea ?: ""
                     val adminArea = address.adminArea ?: ""
                     val parts = listOf(thoroughfare, locality, adminArea).filter { it.isNotBlank() }
-                    if (parts.isNotEmpty()) parts.joinToString(", ") else address.getAddressLine(0) ?: "Lat: %.4f, Lng: %.4f".format(lat, lng)
+                    if (parts.isNotEmpty()) {
+                        parts.joinToString(", ")
+                    } else {
+                        address.getAddressLine(0) ?: "Lat: %.4f, Lng: %.4f".format(lat, lng)
+                    }
                 } else {
                     "Location available, address unavailable"
                 }
@@ -144,7 +148,7 @@ class DeviceSafetyHelper(private val context: Context) {
     }
 
     /**
-     * Starts 30-sec background audio recording (silent buffer)
+     * Starts up to 30 seconds of ambient audio recording into app cache.
      */
     fun start30SecAudioRecording(sosId: String, onFinished: (String?) -> Unit): String? {
         if (isRecording) {
@@ -154,7 +158,7 @@ class DeviceSafetyHelper(private val context: Context) {
         try {
             val audioDir = File(context.cacheDir, "emergency_recordings")
             if (!audioDir.exists()) audioDir.mkdirs()
-            val outputFile = File(audioDir, "sos_${sosId}_${System.currentTimeMillis()}.m4a")
+            val outputFile = File(audioDir, "sos_\( {sosId}_ \){System.currentTimeMillis()}.m4a")
             currentRecordingFile = outputFile
 
             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -169,7 +173,7 @@ class DeviceSafetyHelper(private val context: Context) {
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 setOutputFile(outputFile.absolutePath)
-                setMaxDuration(30_000) // 30 seconds max duration
+                setMaxDuration(30_000)
                 setOnInfoListener { _, what, _ ->
                     if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) {
                         stopAudioRecording()
@@ -192,7 +196,7 @@ class DeviceSafetyHelper(private val context: Context) {
     }
 
     /**
-     * Stops current audio recording
+     * Stops current audio recording and returns the file path if any.
      */
     fun stopAudioRecording(): String? {
         val path = currentRecordingFile?.absolutePath
@@ -213,7 +217,7 @@ class DeviceSafetyHelper(private val context: Context) {
     }
 
     /**
-     * Plays back recorded emergency audio
+     * Plays back recorded emergency audio.
      */
     fun playAudio(filePath: String, onCompleted: () -> Unit) {
         stopAudioPlayback()
@@ -247,7 +251,7 @@ class DeviceSafetyHelper(private val context: Context) {
     }
 
     /**
-     * Prepares standard SMS Intent to broadcast to emergency contacts
+     * Prepares an SMS intent for emergency contacts.
      */
     fun createSmsIntent(phoneNumbers: List<String>, messageBody: String): Intent {
         val uri = Uri.parse("smsto:" + phoneNumbers.joinToString(separator = ";"))
@@ -258,7 +262,7 @@ class DeviceSafetyHelper(private val context: Context) {
     }
 
     /**
-     * Prepares Emergency Auto-Dial Intent (e.g. 112 / 911 / emergency contact)
+     * Prepares an emergency dial intent (default 112).
      */
     fun createEmergencyDialIntent(number: String = "112"): Intent {
         return Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")).apply {
