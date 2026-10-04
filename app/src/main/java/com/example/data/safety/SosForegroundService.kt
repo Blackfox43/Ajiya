@@ -17,6 +17,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.data.db.AppDatabase
 import com.example.data.model.LocationPingEntity
@@ -120,25 +123,29 @@ class SosForegroundService : Service() {
 
         when (action) {
             ACTION_START_SOS -> {
-                val sosId = intent.getStringExtra(EXTRA_SOS_ID) ?: "SOS-${System.currentTimeMillis() % 1000000}"
+                val sosId = intent.getStringExtra(EXTRA_SOS_ID)
+                    ?: "SOS-${System.currentTimeMillis() % 1000000}"
                 val mode = intent.getStringExtra(EXTRA_CRISIS_MODE) ?: "KIDNAP_SILENT"
                 activeSosId = sosId
                 crisisMode = mode
 
-                // 1. Elevate to foreground service with high-priority notification
                 val notification = buildNotification(
                     title = "AJIYA Emergency Active",
-                    content = "Crisis: $mode. Live GPS streaming & audio capture active."
+                    content = "Crisis: $mode. Live tracking active."
                 )
                 startForegroundWithServiceTypes(notification)
 
-                // 2. Start continuous 10s background GPS updates
                 startBackgroundLocationTracking(sosId)
 
-                // 3. Start 30-second audio capture using MediaRecorder
-                start30SecondAudioCapture(sosId)
+                val hasMic = ContextCompat.checkSelfPermission(
+                    this, Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+                if (hasMic) {
+                    start30SecondAudioCapture(sosId)
+                } else {
+                    Log.w(TAG, "Skipping audio capture — RECORD_AUDIO not granted")
+                }
 
-                // 4. Trigger Firebase/Supabase broadcast notification to trusted contacts
                 broadcastSosToContactsAndBackend(sosId, mode)
             }
             ACTION_STOP_SOS -> {
@@ -150,25 +157,37 @@ class SosForegroundService : Service() {
     }
 
     private fun startForegroundWithServiceTypes(notification: Notification) {
+        val hasLocation =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        val hasMic =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+
+        var serviceType = 0
+        if (hasLocation && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        }
+        if (hasMic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // Android 14+
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                )
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) { // Android 10-13
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && serviceType != 0) {
+                startForeground(NOTIFICATION_ID, notification, serviceType)
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error starting foreground service: ${e.message}")
-            startForeground(NOTIFICATION_ID, notification)
+            try {
+                startForeground(NOTIFICATION_ID, notification)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Fatal: cannot start foreground service: ${e2.message}")
+                stopSelf()
+            }
         }
     }
 
