@@ -9,21 +9,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -36,13 +25,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.config.AppConfigManager
 import com.example.ui.components.BottomNavBar
 import com.example.ui.components.ProminentLocationDisclosureDialog
-import com.example.ui.components.ProminentSmsDisclosureDialog
 import com.example.ui.screens.BeHelperScreen
 import com.example.ui.screens.DecoyScreen
 import com.example.ui.screens.HistoryScreen
@@ -52,8 +38,6 @@ import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.SecurityLegalScreen
 import com.example.ui.screens.SubscriptionPaywallScreen
 import com.example.ui.theme.AjiyaTheme
-import com.example.ui.theme.BeaconCyan
-import com.example.ui.theme.CrimsonPrimary
 import com.example.ui.theme.NavySurface
 import com.example.ui.viewmodel.AppNavDestination
 import com.example.ui.viewmodel.SafetyViewModel
@@ -83,7 +67,6 @@ fun AjiyaApp(
 
     var showBackgroundLocationDisclosure by remember { mutableStateOf(false) }
 
-    // Background Location Permission Launcher (Android 10+ / API 29+)
     val bgLocationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -92,15 +75,14 @@ fun AjiyaApp(
         }
     }
 
-    // Runtime Permission Launcher for foreground capabilities
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val fineLocationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
-        val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
-        if (fineLocationGranted) {
+        val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
+        // RECORD_AUDIO grant is consumed by SosForegroundService at SOS time
+        if (fineLocationGranted || coarseGranted) {
             viewModel.refreshLocationAndAddress()
-            // If background location hasn't been consented yet, present the Google Play prominent disclosure
             if (!configState.backgroundLocationConsentGranted) {
                 showBackgroundLocationDisclosure = true
             }
@@ -111,19 +93,22 @@ fun AjiyaApp(
         if (currentUser?.onboardingCompleted == true) {
             val permissionsList = mutableListOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.RECORD_AUDIO
             )
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 permissionsList.add(Manifest.permission.POST_NOTIFICATIONS)
             }
-            // Microphone is requested later, when a user explicitly enables voice safety.
+            // Location + microphone required for SOS tracking and ambient audio evidence
             permissionLauncher.launch(permissionsList.toTypedArray())
         }
     }
 
-
     if (currentUser == null) {
-        Box(Modifier.fillMaxSize().background(NavySurface), contentAlignment = androidx.compose.ui.Alignment.Center) {
+        Box(
+            Modifier.fillMaxSize().background(NavySurface),
+            contentAlignment = androidx.compose.ui.Alignment.Center
+        ) {
             Text("Preparing AJIYA…", color = Color.White, fontWeight = FontWeight.Bold)
         }
     } else if (currentUser?.onboardingCompleted != true) {
