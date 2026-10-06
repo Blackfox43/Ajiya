@@ -11,6 +11,8 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.util.Log
+import android.annotation.SuppressLint
+import kotlinx.coroutines.suspendCancellableCoroutine
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -54,12 +56,10 @@ class DeviceSafetyHelper(private val context: Context) {
      * Best-effort GPS fix. Returns null when no real fix is available.
      * Never throws for a missing fix (callers decide how to handle it).
      */
+    @SuppressLint("MissingPermission")
     suspend fun getCurrentCoordinatesOrNull(): Pair<Double, Double>? {
         return withContext(Dispatchers.IO) {
             try {
-                var lat: Double? = null
-                var lng: Double? = null
-
                 val cts = CancellationTokenSource()
                 try {
                     val locationTask = fusedLocationClient.getCurrentLocation(
@@ -68,45 +68,100 @@ class DeviceSafetyHelper(private val context: Context) {
                     )
                     val location: Location? = com.google.android.gms.tasks.Tasks.await(
                         locationTask,
-                        3000,
+                        8_000,
                         java.util.concurrent.TimeUnit.MILLISECONDS
                     )
                     if (location != null) {
-                        lat = location.latitude
-                        lng = location.longitude
+                        return@withContext Pair(location.latitude, location.longitude)
                     }
                 } catch (e: Exception) {
-                    Log.w(
-                        "DeviceSafetyHelper",
-                        "Fused location failed, trying lastLocation: ${e.message}"
-                    )
+                    Log.w("DeviceSafetyHelper", "getCurrentLocation failed: " + e.message)
                 }
 
-                if (lat == null || lng == null) {
-                    try {
-                        val lastTask = fusedLocationClient.lastLocation
-                        val lastLoc: Location? = com.google.android.gms.tasks.Tasks.await(
-                            lastTask,
-                            1500,
-                            java.util.concurrent.TimeUnit.MILLISECONDS
-                        )
-                        if (lastLoc != null) {
-                            lat = lastLoc.latitude
-                            lng = lastLoc.longitude
+                try {
+                    val lastLoc: Location? = com.google.android.gms.tasks.Tasks.await(
+                        fusedLocationClient.lastLocation,
+                        2_000,
+                        java.util.concurrent.TimeUnit.MILLISECONDS
+                    )
+                    if (lastLoc != null) {
+                        return@withContext Pair(lastLoc.latitude, lastLoc.longitude)
+                    }
+                } catch (e: Exception) {
+                    Log.w("DeviceSafetyHelper", "lastLocation failed: " + e.message)
+                }
+
+                requestSingleHighAccuracyFix(12_000L)
+            } catch (e: SecurityException) {
+                Log.w("DeviceSafetyHelper", "Location permission not granted: " + e.message)
+                null
+            } catch (e: Exception) {
+                Log.w("DeviceSafetyHelper", "Error getting location: " + e.message)
+                null
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun requestSingleHighAccuracyFix(timeoutMs: Long): Pair<Double, Double>? {
+        return try {
+            suspendCancellableCoroutine { cont ->
+                val client = fusedLocationClient
+                val request = com.google.android.gms.location.LocationRequest.Builder(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    1_000L
+                )
+                    .setMinUpdateIntervalMillis(500L)
+                    .setMaxUpdates(1)
+                    .setDurationMillis(timeoutMs)
+                    .build()
+
+                val callback = object : com.google.android.gms.location.LocationCallback() {
+                    override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
+                        val loc = result.lastLocation
+                        try {
+                            client.removeLocationUpdates(this)
+                        } catch (_: Exception) {
                         }
-                    } catch (e: Exception) {
-                        Log.w("DeviceSafetyHelper", "lastLocation failed: ${e.message}")
+                        if (cont.isActive) {
+                            if (loc != null) {
+                                cont.resume(Pair(loc.latitude, loc.longitude), null)
+                            } else {
+                                cont.resume(null, null)
+                            }
+                        }
                     }
                 }
 
-                if (lat != null && lng != null) Pair(lat, lng) else null
-            } catch (e: SecurityException) {
-                Log.w("DeviceSafetyHelper", "Location permission not granted: ${e.message}")
-                null
-            } catch (e: Exception) {
-                Log.w("DeviceSafetyHelper", "Error getting location: ${e.message}")
-                null
+                try {
+                    client.requestLocationUpdates(
+                        request,
+                        callback,
+                        android.os.Looper.getMainLooper()
+                    )
+                } catch (e: Exception) {
+                    if (cont.isActive) cont.resume(null, null)
+                    return@suspendCancellableCoroutine
+                }
+
+                cont.invokeOnCancellation {
+                    try {
+                        client.removeLocationUpdates(callback)
+                    } catch (_: Exception) {
+                    }
+                }
+
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    try {
+                        client.removeLocationUpdates(callback)
+                    } catch (_: Exception) {
+                    }
+                    if (cont.isActive) cont.resume(null, null)
+                }, timeoutMs)
             }
+        } catch (e: Exception) {
+            Log.w("DeviceSafetyHelper", "requestSingleHighAccuracyFix failed: " + e.message)
+            null
         }
     }
 
