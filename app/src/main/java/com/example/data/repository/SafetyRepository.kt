@@ -308,6 +308,26 @@ class SafetyRepository(
         )
     }
 
+    suspend fun createHelperAlert(
+        label: String,
+        crisisType: String,
+        distanceMeters: Int,
+        lat: Double,
+        lng: Double
+    ) = withContext(Dispatchers.IO) {
+        val alert = HelperAlertEntity(
+            id = "alert_${System.currentTimeMillis()}",
+            anonymizedLabel = label,
+            distanceMeters = distanceMeters,
+            crisisType = crisisType,
+            status = "PENDING",
+            timestamp = System.currentTimeMillis(),
+            lat = lat,
+            lng = lng
+        )
+        database.helperAlertDao().insertAlert(alert)
+    }
+
     fun getPingsForSos(sosId: String): Flow<List<LocationPingEntity>> {
         return database.locationPingDao().getPingsForSos(sosId)
     }

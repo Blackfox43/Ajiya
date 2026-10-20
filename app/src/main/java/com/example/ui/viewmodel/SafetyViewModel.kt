@@ -222,6 +222,57 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /**
+     * Opens live coordinates directly in Google Maps for live navigation or victim tracking.
+     */
+    fun openLocationInGoogleMaps(lat: Double, lng: Double, label: String = "Distress Location") {
+        deviceHelper.openLocationInGoogleMaps(lat, lng, label)
+        _statusNotice.value = "Opening Google Maps navigation to $label..."
+    }
+
+    /**
+     * Simulates a live distress signal appearing nearby within the helper's 2km safe radius.
+     * Generates a live location ping that helpers can locate on the radar and click to open in Google Maps.
+     */
+    fun simulateNewDistressAlert() {
+        viewModelScope.launch {
+            val coords = try {
+                deviceHelper.getCurrentCoordinates()
+            } catch (e: Exception) {
+                Pair(6.4281, 3.4219)
+            }
+            // Generate offset within ~300m - 1200m
+            val angle = Math.random() * 2 * Math.PI
+            val distanceKm = 0.3 + (Math.random() * 0.9) // 0.3km to 1.2km
+            // 1 degree lat is ~111km
+            val latOffset = (distanceKm / 111.0) * Math.cos(angle)
+            val lngOffset = (distanceKm / (111.0 * Math.cos(Math.toRadians(coords.first)))) * Math.sin(angle)
+
+            val victimLat = coords.first + latOffset
+            val victimLng = coords.second + lngOffset
+            val distanceMeters = (distanceKm * 1000).toInt()
+
+            val types = listOf(
+                "Accident SOS",
+                "Medical Emergency",
+                "Silent Duress Beacon",
+                "Hit & Run Assistance",
+                "Stranded Night Commuter"
+            )
+            val selectedType = types.random()
+            val label = "Distress Beacon - $selectedType"
+
+            repository.createHelperAlert(
+                label = label,
+                crisisType = selectedType,
+                distanceMeters = distanceMeters,
+                lat = victimLat,
+                lng = victimLng
+            )
+            _statusNotice.value = "🚨 New live distress signal received (${distanceMeters}m away)! Tap to track on Google Maps."
+        }
+    }
+
     fun playAudio(path: String) {
         if (_currentlyPlayingAudio.value == path) {
             deviceHelper.stopAudioPlayback()
@@ -371,6 +422,10 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun dismissNotice() {
         _statusNotice.value = null
+    }
+
+    fun postStatusNotice(message: String) {
+        _statusNotice.value = message
     }
 
     fun getSmsBroadcastText(): String {

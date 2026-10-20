@@ -255,4 +255,46 @@ class DeviceSafetyHelper(private val context: Context) {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
     }
+
+    /**
+     * Creates an Intent to open a live location coordinates directly in Google Maps.
+     */
+    fun createGoogleMapsIntent(lat: Double, lng: Double, label: String = "Distress Location"): Intent {
+        val encodedLabel = Uri.encode(label)
+        val geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng($encodedLabel)")
+        return Intent(Intent.ACTION_VIEW, geoUri).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+    }
+
+    /**
+     * Opens live coordinates directly in Google Maps application or fallback web browser.
+     * Allows a helper to locate and navigate turn-by-turn to someone who needs help.
+     */
+    fun openLocationInGoogleMaps(lat: Double, lng: Double, label: String = "Distress Location") {
+        try {
+            val encodedLabel = Uri.encode(label)
+            val gmmIntentUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng($encodedLabel)")
+            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            if (mapIntent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(mapIntent)
+                return
+            }
+        } catch (e: Exception) {
+            Log.w("DeviceSafetyHelper", "Native map intent failed: ${e.message}")
+        }
+
+        // Web URL fallback opens Google Maps directions or search reliably on all devices/emulators
+        try {
+            val webUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=$lat,$lng")
+            val webIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(webIntent)
+        } catch (e: Exception) {
+            Log.e("DeviceSafetyHelper", "Failed to open Google Maps fallback: ${e.message}")
+        }
+    }
 }

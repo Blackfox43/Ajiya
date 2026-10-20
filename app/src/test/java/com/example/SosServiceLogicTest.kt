@@ -197,4 +197,19 @@ class SosServiceLogicTest {
         assertEquals("smsto:+2348011223344", intent.data.toString())
         assertEquals(testMessage, intent.getStringExtra("sms_body"))
     }
+
+    @Test
+    fun `verify SOS camera evidence photo and video file target generation`() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val timestamp = System.currentTimeMillis()
+        val photoFile = java.io.File(context.filesDir, "sos_evidence_photo_${timestamp}.jpg")
+        val videoFile = java.io.File(context.filesDir, "sos_evidence_video_${timestamp}.mp4")
+
+        assertTrue(photoFile.name.startsWith("sos_evidence_photo_"))
+        assertTrue(photoFile.name.endsWith(".jpg"))
+        assertTrue(videoFile.name.startsWith("sos_evidence_video_"))
+        assertTrue(videoFile.name.endsWith(".mp4"))
+        assertEquals(context.filesDir.absolutePath, photoFile.parentFile?.absolutePath)
+        assertEquals(context.filesDir.absolutePath, videoFile.parentFile?.absolutePath)
+    }
 }

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Info
@@ -67,8 +68,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.LiveSafetyMap
+import com.example.ui.components.SosCameraEvidenceView
 import com.example.ui.components.SosEmergencyButton
 import com.example.ui.theme.AlertAmber
 import com.example.ui.theme.BeaconCyan
@@ -93,6 +98,7 @@ fun HomeScreen(
     val battery by viewModel.batteryLevel.collectAsState()
     val address by viewModel.currentAddress.collectAsState()
     val statusNotice by viewModel.statusNotice.collectAsState()
+    val helperAlerts by viewModel.helperAlerts.collectAsState()
 
     val isShakeEnabled by viewModel.isShakeEnabled.collectAsState()
     val isVoiceEnabled by viewModel.isVoiceEnabled.collectAsState()
@@ -102,6 +108,9 @@ fun HomeScreen(
 
     val isSosActive = activeSos != null
     val selectedMode = activeSos?.mode ?: currentUser?.activeCrisisMode ?: "KIDNAP_SILENT"
+
+    var isEvidenceCameraOpen by remember { mutableStateOf(false) }
+    var isStandbyCameraOpen by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
 
@@ -298,6 +307,19 @@ fun HomeScreen(
                             Text("SMS", color = BeaconCyan)
                         }
 
+                        OutlinedButton(
+                            onClick = {
+                                val lat = activeSos?.lat ?: 6.4281
+                                val lng = activeSos?.lng ?: 3.4219
+                                viewModel.openLocationInGoogleMaps(lat, lng, "Active Emergency SOS ($selectedMode)")
+                            },
+                            modifier = Modifier.testTag("sos_open_google_maps_button")
+                        ) {
+                            Icon(Icons.Default.Directions, contentDescription = null, tint = BeaconCyan)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Map", color = BeaconCyan)
+                        }
+
                         if (selectedMode == "ACCIDENT_LOUD") {
                             Button(
                                 onClick = {
@@ -309,6 +331,45 @@ fun HomeScreen(
                             ) {
                                 Icon(Icons.Default.Call, contentDescription = null)
                             }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = { isEvidenceCameraOpen = !isEvidenceCameraOpen },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isEvidenceCameraOpen) AlertAmber else CrimsonPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("toggle_sos_camera_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isEvidenceCameraOpen) Icons.Default.Close else Icons.Default.PhotoCamera,
+                            contentDescription = null,
+                            tint = if (isEvidenceCameraOpen) Color.Black else Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isEvidenceCameraOpen) "Hide Evidence Camera" else "Open Evidence Camera (Record Video / Photo)",
+                            color = if (isEvidenceCameraOpen) Color.Black else Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    AnimatedVisibility(visible = isEvidenceCameraOpen) {
+                        Column {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            SosCameraEvidenceView(
+                                locationCoordinates = address,
+                                onEvidenceCaptured = { file, isVideo ->
+                                    val type = if (isVideo) "Video clip" else "Still photo"
+                                    viewModel.postStatusNotice("Forensic $type saved to device: ${file.name}")
+                                },
+                                onClose = { isEvidenceCameraOpen = false }
+                            )
                         }
                     }
                 }
@@ -526,42 +587,151 @@ fun HomeScreen(
                 lng = activeSos?.lng ?: 3.4219,
                 pings = pings,
                 isTrackingActive = isSosActive,
+                helperAlerts = if (currentUser?.isHelper == true) helperAlerts.filter { it.status != "DECLINED" } else emptyList(),
+                onLocationClick = { targetLat, targetLng, label ->
+                    viewModel.openLocationInGoogleMaps(targetLat, targetLng, label)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(210.dp)
+                    .height(220.dp)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Last known geocoded street address
+            // Last known geocoded street address + Direct Google Maps launcher
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = NavySurface),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = "Address",
-                        tint = CrimsonPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = "Address",
+                            tint = CrimsonPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Last Known Address",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.LightGray
+                            )
+                            Text(
+                                text = address,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Button(
+                        onClick = {
+                            val targetLat = activeSos?.lat ?: 6.4281
+                            val targetLng = activeSos?.lng ?: 3.4219
+                            val label = if (isSosActive) "Active SOS Incident ($selectedMode)" else "Current Location ($address)"
+                            viewModel.openLocationInGoogleMaps(targetLat, targetLng, label)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E3A6E)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.testTag("open_google_maps_address_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Directions,
+                            contentDescription = "Open in Google Maps",
+                            tint = BeaconCyan,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Last Known Address",
+                            text = "Maps",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.LightGray
+                            color = BeaconCyan
                         )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Forensic Evidence Camera Card (Photo & Video Recorder)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .border(1.dp, AlertAmber.copy(alpha = 0.4f), RoundedCornerShape(14.dp)),
+            colors = CardDefaults.cardColors(containerColor = NavySurface),
+            shape = RoundedCornerShape(14.dp)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = null,
+                            tint = AlertAmber,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = address,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
+                            text = "Forensic Evidence Camera",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
                             color = Color.White
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = { isStandbyCameraOpen = !isStandbyCameraOpen },
+                        modifier = Modifier.testTag("toggle_standby_camera_button")
+                    ) {
+                        Text(
+                            text = if (isStandbyCameraOpen) "Close" else "Launch",
+                            fontSize = 12.sp,
+                            color = AlertAmber
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Record video or snap timestamped photos with live GPS coordinates to document threats, checkpoints, or emergency events.",
+                    fontSize = 12.sp,
+                    color = Color.LightGray,
+                    lineHeight = 16.sp
+                )
+
+                AnimatedVisibility(visible = isStandbyCameraOpen) {
+                    Column {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        SosCameraEvidenceView(
+                            locationCoordinates = address,
+                            onEvidenceCaptured = { file, isVideo ->
+                                val type = if (isVideo) "Video evidence clip" else "Still photo"
+                                viewModel.postStatusNotice("Forensic $type saved to device: ${file.name}")
+                            },
+                            onClose = { isStandbyCameraOpen = false }
                         )
                     }
                 }

@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoDelete
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Mic
@@ -208,6 +209,13 @@ fun HistoryScreen(
                         isPlaying = playingAudio == event.audioUrl,
                         onPlayAudio = {
                             event.audioUrl?.let { path -> viewModel.playAudio(path) }
+                        },
+                        onOpenMap = {
+                            viewModel.openLocationInGoogleMaps(
+                                event.lat,
+                                event.lng,
+                                "Incident ${event.id}: ${event.address}"
+                            )
                         }
                     )
                 }
@@ -223,7 +231,8 @@ fun HistoryScreen(
 private fun EventHistoryCard(
     event: SosEventEntity,
     isPlaying: Boolean,
-    onPlayAudio: () -> Unit
+    onPlayAudio: () -> Unit,
+    onOpenMap: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy • HH:mm", Locale.getDefault()) }
     val dateString = remember(event.createdAt) { dateFormat.format(Date(event.createdAt)) }
@@ -378,6 +387,30 @@ private fun EventHistoryCard(
                         )
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = onOpenMap,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("open_map_history_${event.id}")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Directions,
+                    contentDescription = "Open in Google Maps",
+                    tint = BeaconCyan,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "View Incident Location on Google Maps",
+                    fontSize = 11.sp,
+                    color = BeaconCyan,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
