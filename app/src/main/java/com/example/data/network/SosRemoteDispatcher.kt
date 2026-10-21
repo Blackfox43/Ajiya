@@ -5,6 +5,8 @@ import com.example.data.model.LocationPingEntity
 import com.example.data.model.SosEventEntity
 import com.example.data.model.TrustedContactEntity
 import com.example.data.model.UserEntity
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -18,7 +20,7 @@ import java.util.concurrent.TimeUnit
 /**
  * Handles remote synchronization and event notifications for SOS triggers,
  * continuous background GPS breadcrumbs, and 30s audio snippets
- * across Supabase Realtime and Firebase cloud notification channels.
+ * across Firebase Firestore, Supabase Realtime, and Firebase cloud notification channels.
  */
 class SosRemoteDispatcher(
     private val supabaseUrl: String = "https://ajiya-network.supabase.co",
@@ -36,8 +38,8 @@ class SosRemoteDispatcher(
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     /**
-     * Dispatches the initial SOS Event record to Supabase and triggers
-     * urgent push/SMS notification to all designated trusted contacts.
+     * Dispatches the initial SOS Event record to Firestore and Supabase,
+     * and triggers urgent push/SMS notification to all designated trusted contacts.
      */
     suspend fun dispatchSosEvent(
         sosEvent: SosEventEntity,
@@ -47,7 +49,10 @@ class SosRemoteDispatcher(
         try {
             Log.d(tag, "Dispatching SOS [${sosEvent.id}] - Mode: ${sosEvent.mode} for user: ${user?.name}")
 
-            // 1. Post to Supabase 'sos_events' table
+            // 1. Real-time storage in Firebase Firestore
+            syncAlertToFirestore(sosEvent, user)
+
+            // 2. Post to Supabase 'sos_events' table
             val eventJson = JSONObject().apply {
                 put("id", sosEvent.id)
                 put("user_id", sosEvent.userId)
@@ -63,7 +68,7 @@ class SosRemoteDispatcher(
 
             postToSupabase("sos_events", eventJson.toString())
 
-            // 2. Trigger Firebase / Supabase Push and SMS notification to Trusted Contacts
+            // 3. Trigger Firebase / Supabase Push and SMS notification to Trusted Contacts
             notifyTrustedContacts(sosEvent, user, contacts)
 
             Result.success(true)
@@ -143,13 +148,17 @@ class SosRemoteDispatcher(
 
     /**
      * Streams a high-accuracy background location ping (10-second interval)
-     * to the Supabase 'location_pings' table.
+     * to Firestore and the Supabase 'location_pings' table.
      */
     suspend fun sendLocationPing(
         sosId: String,
         ping: LocationPingEntity
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            // 1. Stream real-time location ping to Firestore
+            syncLocationPingToFirestore(sosId, ping)
+
+            // 2. Stream to Supabase
             val pingJson = JSONObject().apply {
                 put("sos_id", sosId)
                 put("lat", ping.lat)
@@ -162,7 +171,7 @@ class SosRemoteDispatcher(
             postToSupabase("location_pings", pingJson.toString())
             Result.success(true)
         } catch (e: Exception) {
-            Log.w(tag, "Failed to stream ping to Supabase: ${e.message}")
+            Log.w(tag, "Failed to stream ping: ${e.message}")
             Result.success(false) // Non-blocking
         }
     }
@@ -175,6 +184,10 @@ class SosRemoteDispatcher(
         audioPath: String
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            // 1. Update audio in Firestore
+            updateAudioInFirestore(sosId, audioPath)
+
+            // 2. Update audio in Supabase
             val updateJson = JSONObject().apply {
                 put("audio_url", audioPath)
             }
@@ -199,10 +212,14 @@ class SosRemoteDispatcher(
     }
 
     /**
-     * Updates SOS status to 'resolved' remotely.
+     * Updates SOS status to 'resolved' remotely across Firestore and Supabase.
      */
     suspend fun resolveSosEvent(sosId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            // 1. Mark resolved in Firestore
+            resolveAlertInFirestore(sosId)
+
+            // 2. Mark resolved in Supabase
             val resolveJson = JSONObject().apply {
                 put("status", "resolved")
                 put("resolved_at", System.currentTimeMillis())
@@ -238,6 +255,10 @@ class SosRemoteDispatcher(
         batteryLevel: Int = 1
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
+            // 1. Sync to Firestore
+            syncBatteryDeathToFirestore(userId, lat, lng, address, batteryLevel)
+
+            // 2. Sync to Supabase
             val payload = JSONObject().apply {
                 put("user_id", userId)
                 put("lat", lat)
@@ -284,6 +305,139 @@ class SosRemoteDispatcher(
             }
         } catch (e: Exception) {
             Log.d(tag, "Supabase connection unavailable (offline mode active): ${e.message}")
+        }
+    }
+
+    // =========================================================================
+    // Firebase Firestore Real-Time Storage
+    // =========================================================================
+
+    private fun getFirestore(): FirebaseFirestore? {
+        return try {
+            FirebaseFirestore.getInstance()
+        } catch (e: Exception) {
+            Log.d(tag, "Firestore instance not available or offline: ${e.message}")
+            null
+        }
+    }
+
+    private fun syncAlertToFirestore(sosEvent: SosEventEntity, user: UserEntity?) {
+        try {
+            val firestore = getFirestore() ?: return
+            val alertData = hashMapOf(
+                "id" to sosEvent.id,
+                "userId" to sosEvent.userId,
+                "userName" to (user?.name ?: "Ajiya User"),
+                "userPhone" to (user?.phone ?: ""),
+                "latitude" to sosEvent.lat,
+                "longitude" to sosEvent.lng,
+                "address" to sosEvent.address,
+                "audioUrl" to (sosEvent.audioUrl ?: ""),
+                "battery" to sosEvent.battery,
+                "status" to sosEvent.status,
+                "crisisMode" to sosEvent.mode,
+                "createdAt" to sosEvent.createdAt,
+                "updatedAt" to System.currentTimeMillis()
+            )
+            firestore.collection("emergency_alerts")
+                .document(sosEvent.id)
+                .set(alertData, SetOptions.merge())
+                .addOnSuccessListener {
+                    Log.i(tag, "Firestore: Emergency alert ${sosEvent.id} real-time synced.")
+                }
+                .addOnFailureListener { ex ->
+                    Log.w(tag, "Firestore: Emergency alert sync deferred: ${ex.message}")
+                }
+        } catch (e: Exception) {
+            Log.w(tag, "Firestore alert sync skipped: ${e.message}")
+        }
+    }
+
+    private fun syncLocationPingToFirestore(sosId: String, ping: LocationPingEntity) {
+        try {
+            val firestore = getFirestore() ?: return
+            val pingData = hashMapOf(
+                "sosId" to sosId,
+                "latitude" to ping.lat,
+                "longitude" to ping.lng,
+                "accuracy" to ping.accuracy,
+                "speed" to ping.speed,
+                "timestamp" to ping.timestamp
+            )
+            val alertDoc = firestore.collection("emergency_alerts").document(sosId)
+            alertDoc.collection("location_pings")
+                .add(pingData)
+                .addOnSuccessListener {
+                    Log.d(tag, "Firestore: Location ping appended to alert $sosId")
+                }
+                .addOnFailureListener { ex ->
+                    Log.w(tag, "Firestore: Ping append deferred: ${ex.message}")
+                }
+
+            // Also keep current latitude/longitude on parent doc updated in real time
+            val latestLocation = hashMapOf(
+                "latitude" to ping.lat,
+                "longitude" to ping.lng,
+                "lastPingTimestamp" to ping.timestamp
+            )
+            alertDoc.set(latestLocation, SetOptions.merge())
+        } catch (e: Exception) {
+            Log.w(tag, "Firestore location ping skipped: ${e.message}")
+        }
+    }
+
+    private fun updateAudioInFirestore(sosId: String, audioPath: String) {
+        try {
+            val firestore = getFirestore() ?: return
+            val audioData = hashMapOf(
+                "audioUrl" to audioPath,
+                "audioUpdatedAt" to System.currentTimeMillis()
+            )
+            firestore.collection("emergency_alerts")
+                .document(sosId)
+                .set(audioData, SetOptions.merge())
+        } catch (e: Exception) {
+            Log.w(tag, "Firestore audio update skipped: ${e.message}")
+        }
+    }
+
+    private fun resolveAlertInFirestore(sosId: String) {
+        try {
+            val firestore = getFirestore() ?: return
+            val resolveData = hashMapOf(
+                "status" to "resolved",
+                "resolvedAt" to System.currentTimeMillis()
+            )
+            firestore.collection("emergency_alerts")
+                .document(sosId)
+                .set(resolveData, SetOptions.merge())
+        } catch (e: Exception) {
+            Log.w(tag, "Firestore resolve skipped: ${e.message}")
+        }
+    }
+
+    private fun syncBatteryDeathToFirestore(
+        userId: String,
+        lat: Double,
+        lng: Double,
+        address: String,
+        batteryLevel: Int
+    ) {
+        try {
+            val firestore = getFirestore() ?: return
+            val beaconData = hashMapOf(
+                "userId" to userId,
+                "latitude" to lat,
+                "longitude" to lng,
+                "address" to address,
+                "battery" to batteryLevel,
+                "eventType" to "BATTERY_DEATH_SHUTDOWN",
+                "timestamp" to System.currentTimeMillis()
+            )
+            firestore.collection("critical_beacons")
+                .add(beaconData)
+        } catch (e: Exception) {
+            Log.w(tag, "Firestore battery death sync skipped: ${e.message}")
         }
     }
 }
