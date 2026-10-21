@@ -21,6 +21,32 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Ensure Gradle Wrapper
+        run: |
+          mkdir -p gradle/wrapper
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ] || [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "gradle-wrapper.jar missing or empty. Regenerating wrapper..."
+            gradle wrapper --gradle-version 9.3.1 || curl -sSL "https://raw.githubusercontent.com/gradle/gradle/v9.3.1/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar
+          fi
+          chmod +x ./gradlew
+          echo "===== GRADLE WRAPPER DIRECTORY ====="
+          ls -la gradle/wrapper
+
+      - name: Prepare Environment Files
+        run: |
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
+          fi
+
       - name: Configure Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
@@ -36,29 +62,15 @@ jobs:
         run: |
           sdkmanager "platform-tools"
           sdkmanager "platforms;android-35"
+          sdkmanager "platforms;android-36"
           sdkmanager "build-tools;35.0.0"
 
-      - name: Verify Gradle Wrapper
-        run: |
-          echo "===== PROJECT ROOT ====="
-          ls -la
-
-          echo "===== GRADLE WRAPPER ====="
-          ls -la gradle/wrapper
-
-          echo "===== WRAPPER PROPERTIES ====="
-          cat gradle/wrapper/gradle-wrapper.properties
-
-      - name: Make Gradle Wrapper executable
-        run: chmod +x ./gradlew
-
-      - name: Check Gradle
+      - name: Check Gradle Version
         run: ./gradlew --version
 
       - name: Create Debug Keystore
         run: |
           echo "Creating debug keystore..."
-
           keytool -genkeypair \
             -v \
             -keystore "$GITHUB_WORKSPACE/debug.keystore" \
@@ -69,15 +81,8 @@ jobs:
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
-
           echo "Debug keystore created successfully:"
           ls -lh "$GITHUB_WORKSPACE/debug.keystore"
-
-      - name: Verify Debug Keystore
-        run: |
-          keytool -list \
-            -keystore "$GITHUB_WORKSPACE/debug.keystore" \
-            -storepass android
 
       - name: Build Debug APK
         run: |

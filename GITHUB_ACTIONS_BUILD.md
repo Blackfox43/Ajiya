@@ -1,34 +1,26 @@
 # AJIYA — GitHub Actions Cloud Build
 
-This package is prepared to build AJIYA in GitHub Actions without requiring the Gradle wrapper JAR to be present locally.
+This repository is configured to build the AJIYA Android application on GitHub Actions.
 
-## Quick start
+## Quick Start
 
-1. Create a new GitHub repository, for example `ajiya-android`.
-2. Upload **all contents of this folder** to the repository root (do not upload the parent folder itself).
-3. Push to GitHub.
-4. Open **Actions → AJIYA Android Build**.
-5. Open the latest workflow run.
-6. Wait for **Build debug APK** and **Run unit tests**.
-7. Under **Artifacts**, download `ajiya-debug-apk`.
-8. Extract the downloaded artifact and install the APK on an Android test phone.
+1. Commit or push the updated files to your GitHub repository (specifically `.github/workflows/android-build.yml` and `gradle/wrapper/gradle-wrapper.jar`).
+2. Go to **Actions** → **AJIYA Android Build** in your repository.
+3. Trigger the workflow manually via **Run workflow** (or push to `main`).
+4. Once completed, download `AJIYA-debug-apk` under **Artifacts** at the bottom of the summary page.
 
-## What the workflow does
+## Why the Previous Error Occurred
+The error:
+```
+Error: Unable to access jarfile .../gradle/wrapper/gradle-wrapper.jar
+Error: Process completed with exit code 1
+```
+occurred because `gradle/wrapper/gradle-wrapper.jar` was either:
+- Not pushed to the GitHub repository (often filtered out by global `.gitignore` rules or omitted during manual drag-and-drop file uploads).
+- Missing before the workflow attempted to invoke `./gradlew`.
 
-- Uses Ubuntu GitHub-hosted runner.
-- Uses Temurin JDK 21.
-- Installs Gradle 9.3.1 directly, so the missing local Gradle wrapper JAR is not a blocker.
-- Installs Android SDK platform 36 and build tools 36.0.0.
-- Copies `.env.example` to `.env` if no `.env` exists.
-- Builds `assembleDebug`.
-- Runs `testDebugUnitTest`.
-- Uploads the debug APK as a workflow artifact.
-- Uploads test reports when available.
-
-## Important safety note
-
-This is a debug build for controlled testing. It is **not** a production emergency-dispatch release. Do not connect real emergency contacts or production credentials until the backend, identity, permissions, dispatch, and device behavior have been validated.
-
-## Production secrets
-
-Do not commit Paystack, Supabase, Firebase, Termii, signing keys, or other production secrets to GitHub. Add them later as GitHub Actions Secrets/Variables and use a separate release workflow.
+## How It Is Now Resolved
+1. **Automated Gradle Setup:** The workflow now uses `gradle/actions/setup-gradle@v4` to provide Gradle 9.3.1 directly on the runner.
+2. **Self-Healing Wrapper:** The workflow checks if `gradle/wrapper/gradle-wrapper.jar` exists; if it is missing from the checkout, it regenerates or downloads it automatically before calling `./gradlew`.
+3. **Git Tracking:** `.gitignore` has been updated with explicit rules (`!gradle/wrapper/gradle-wrapper.jar`) so that the JAR file is never ignored when committing code.
+4. **Environment Readiness:** Prepares `.env` from `.env.example` to prevent build issues with the Secrets Gradle Plugin.
