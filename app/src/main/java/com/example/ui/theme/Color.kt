@@ -12,6 +12,7 @@ val BeaconCyanDark = Color(0xFF0077B6)
 val BeaconCyanLight = Color(0xFF90E0EF)
 
 val AlertAmber = Color(0xFFFFB703)
+val AmberAlert = AlertAmber
 val AlertOrange = Color(0xFFFB8500)
 val SafeGreen = Color(0xFF06D6A0)
 
