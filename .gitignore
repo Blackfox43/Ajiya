@@ -19,6 +19,7 @@ debug.keystore
 *.jks
 *.keystore
 credentials.txt
+*-debug.log
 
 # Ensure Gradle wrapper jar is always tracked in git
 !gradle/wrapper/gradle-wrapper.jar

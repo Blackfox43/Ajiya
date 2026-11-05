@@ -1,0 +1,209 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with safety settings and preferences",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The Firebase Auth UID matching request.auth.uid"
+        },
+        "name": {
+          "type": "string",
+          "description": "User's display or safety name"
+        },
+        "phone": {
+          "type": "string",
+          "description": "User's contact phone number"
+        },
+        "isHelper": {
+          "type": "boolean",
+          "description": "Opt-in status to receive local emergency responder signals"
+        },
+        "shareLocationOptIn": {
+          "type": "boolean",
+          "description": "Opt-in to share location breadcrumbs during active crises"
+        },
+        "activeCrisisMode": {
+          "type": "string",
+          "description": "Current crisis mode (e.g. KIDNAP_SILENT, ACCIDENT, MEDICAL, DOMESTIC_VIOLENCE, RISKY_TRIP)"
+        },
+        "hasCompletedConsent": {
+          "type": "boolean",
+          "description": "Whether user acknowledged prominent privacy & safety disclosures"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when user profile was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated"
+        }
+      },
+      "required": ["userId", "name", "phone", "createdAt"]
+    },
+    "EmergencyAlert": {
+      "title": "EmergencyAlert",
+      "description": "Real-time emergency SOS event broadcasted to circle and nearby helpers",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this emergency alert"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the user in distress"
+        },
+        "userName": {
+          "type": "string",
+          "description": "Name of user in distress"
+        },
+        "userPhone": {
+          "type": "string",
+          "description": "Phone number of user in distress"
+        },
+        "latitude": {
+          "type": "number",
+          "description": "Last recorded latitude coordinate"
+        },
+        "longitude": {
+          "type": "number",
+          "description": "Last recorded longitude coordinate"
+        },
+        "address": {
+          "type": "string",
+          "description": "Geocoded address or description"
+        },
+        "audioUrl": {
+          "type": "string",
+          "description": "Path or URL to 30-second evidence audio snippet"
+        },
+        "battery": {
+          "type": "number",
+          "description": "Battery percentage level (0-100)"
+        },
+        "status": {
+          "type": "string",
+          "description": "Status of crisis: 'active' or 'resolved'"
+        },
+        "crisisMode": {
+          "type": "string",
+          "description": "Type of crisis trigger"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of emergency trigger"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update"
+        },
+        "resolvedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when alert was resolved"
+        }
+      },
+      "required": ["id", "userId", "status", "crisisMode", "createdAt"]
+    },
+    "LocationPing": {
+      "title": "LocationPing",
+      "description": "High-accuracy background GPS location breadcrumb for active crisis tracking",
+      "type": "object",
+      "properties": {
+        "sosId": {
+          "type": "string",
+          "description": "Parent SOS emergency alert ID"
+        },
+        "latitude": {
+          "type": "number",
+          "description": "Latitude coordinate"
+        },
+        "longitude": {
+          "type": "number",
+          "description": "Longitude coordinate"
+        },
+        "accuracy": {
+          "type": "number",
+          "description": "Horizontal GPS accuracy in meters"
+        },
+        "speed": {
+          "type": "number",
+          "description": "Speed in m/s"
+        },
+        "timestamp": {
+          "type": "number",
+          "description": "Device epoch timestamp in milliseconds"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of breadcrumb ingestion"
+        }
+      },
+      "required": ["sosId", "latitude", "longitude", "timestamp"]
+    },
+    "TrustedContact": {
+      "title": "TrustedContact",
+      "description": "Designated emergency guardian or circle contact",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Contact ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user UID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact name"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number"
+        },
+        "relationship": {
+          "type": "string",
+          "description": "Relationship to user"
+        },
+        "isPrimary": {
+          "type": "boolean",
+          "description": "Whether this is the primary contact"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": ["userId", "name", "phone"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "entities/User" },
+      "description": "User profile with private settings and credentials"
+    },
+    "/users/{userId}/trusted_contacts/{contactId}": {
+      "schema": { "$ref": "entities/TrustedContact" },
+      "description": "Trusted circle contacts designated for emergency notifications"
+    },
+    "/emergency_alerts/{alertId}": {
+      "schema": { "$ref": "entities/EmergencyAlert" },
+      "description": "Active or historical emergency alert records"
+    },
+    "/emergency_alerts/{alertId}/location_pings/{pingId}": {
+      "schema": { "$ref": "entities/LocationPing" },
+      "description": "High-accuracy GPS breadcrumb subcollection under an active emergency alert"
+    }
+  }
+}

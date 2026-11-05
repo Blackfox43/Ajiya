@@ -17,12 +17,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+import android.content.Context
+import com.example.R
+
 /**
  * Handles remote synchronization and event notifications for SOS triggers,
  * continuous background GPS breadcrumbs, and 30s audio snippets
  * across Firebase Firestore, Supabase Realtime, and Firebase cloud notification channels.
  */
 class SosRemoteDispatcher(
+    private val context: Context? = null,
     private val supabaseUrl: String = "https://ajiya-network.supabase.co",
     private val supabaseAnonKey: String = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key",
     private val firebaseFunctionUrl: String = "https://us-central1-ajiya-safety.cloudfunctions.net"
@@ -314,7 +318,12 @@ class SosRemoteDispatcher(
 
     private fun getFirestore(): FirebaseFirestore? {
         return try {
-            FirebaseFirestore.getInstance()
+            val dbId = context?.getString(R.string.firestore_database_id)
+            if (!dbId.isNullOrBlank()) {
+                FirebaseFirestore.getInstance(dbId)
+            } else {
+                FirebaseFirestore.getInstance()
+            }
         } catch (e: Exception) {
             Log.d(tag, "Firestore instance not available or offline: ${e.message}")
             null

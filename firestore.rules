@@ -1,0 +1,157 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Schema Validation Helpers
+    function isValidUser(data) {
+      return data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.phone is string && data.phone.size() > 0 && data.phone.size() <= 30 &&
+             (!('isHelper' in data) || data.isHelper is bool) &&
+             (!('shareLocationOptIn' in data) || data.shareLocationOptIn is bool) &&
+             (!('activeCrisisMode' in data) || (data.activeCrisisMode is string && data.activeCrisisMode.size() <= 50)) &&
+             (!('hasCompletedConsent' in data) || data.hasCompletedConsent is bool);
+    }
+
+    function isValidTrustedContact(data) {
+      return data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.phone is string && data.phone.size() > 0 && data.phone.size() <= 30 &&
+             (!('relationship' in data) || (data.relationship is string && data.relationship.size() <= 100)) &&
+             (!('isPrimary' in data) || data.isPrimary is bool);
+    }
+
+    function isValidEmergencyAlert(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128 &&
+             data.status is string && (data.status == 'active' || data.status == 'resolved') &&
+             data.crisisMode is string && data.crisisMode.size() <= 50 &&
+             (!('userName' in data) || (data.userName is string && data.userName.size() <= 100)) &&
+             (!('userPhone' in data) || (data.userPhone is string && data.userPhone.size() <= 30)) &&
+             (!('latitude' in data) || data.latitude is number) &&
+             (!('longitude' in data) || data.longitude is number) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
+             (!('audioUrl' in data) || (data.audioUrl is string && data.audioUrl.size() <= 500)) &&
+             (!('battery' in data) || data.battery is number);
+    }
+
+    function isValidLocationPing(data) {
+      return data.sosId is string && data.sosId.size() > 0 && data.sosId.size() <= 128 &&
+             data.latitude is number &&
+             data.longitude is number &&
+             data.timestamp is number &&
+             (!('accuracy' in data) || data.accuracy is number) &&
+             (!('speed' in data) || data.speed is number);
+    }
+
+    // 1. User Profiles Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // PII protection: users can only get their own profile
+
+      allow create: if isOwner(userId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['userId', 'name', 'phone', 'createdAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'phone', 'isHelper', 'shareLocationOptIn', 'activeCrisisMode', 'hasCompletedConsent', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp &&
+                       incoming().createdAt <= request.time &&
+                       isValidUser(incoming());
+
+      allow update: if isOwner(userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidUser(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'isHelper', 'shareLocationOptIn', 'activeCrisisMode', 'hasCompletedConsent', 'updatedAt']);
+
+      allow delete: if isOwner(userId);
+
+      // Subcollection: Trusted Contacts
+      match /trusted_contacts/{contactId} {
+        allow get, list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         incoming().userId == request.auth.uid &&
+                         incoming().keys().hasAll(['userId', 'name', 'phone']) &&
+                         isValidTrustedContact(incoming());
+
+        allow update: if isOwner(userId) &&
+                         incoming().userId == existing().userId &&
+                         isValidTrustedContact(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'relationship', 'isPrimary', 'updatedAt']);
+
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // 2. Emergency Alerts Collection
+    match /emergency_alerts/{alertId} {
+      // Any authenticated user can read active alerts (to respond as safe circle helpers),
+      // or owner can read their own alert
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.status == 'active');
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.status == 'active');
+
+      allow create: if isSignedIn() &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().id == alertId &&
+                       incoming().status == 'active' &&
+                       isValidId(alertId) &&
+                       isValidEmergencyAlert(incoming());
+
+      // Owner can update their alert (streaming location, audio, or marking resolved)
+      allow update: if isSignedIn() &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().id == existing().id &&
+                       isValidEmergencyAlert(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'latitude', 'longitude', 'address', 'audioUrl',
+                         'audioUpdatedAt', 'battery', 'status', 'resolvedAt',
+                         'updatedAt', 'lastPingTimestamp'
+                       ]);
+
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+
+      // Subcollection: Location Pings
+      match /location_pings/{pingId} {
+        // Can read pings if alert is active or owner
+        allow get, list: if isSignedIn() &&
+                            (get(/databases/$(database)/documents/emergency_alerts/$(alertId)).data.userId == request.auth.uid ||
+                             get(/databases/$(database)/documents/emergency_alerts/$(alertId)).data.status == 'active');
+
+        // Only owner of the alert can append location pings
+        allow create: if isSignedIn() &&
+                         get(/databases/$(database)/documents/emergency_alerts/$(alertId)).data.userId == request.auth.uid &&
+                         incoming().sosId == alertId &&
+                         isValidLocationPing(incoming());
+
+        allow update, delete: if false; // Append-only breadcrumb audit log
+      }
+    }
+  }
+}

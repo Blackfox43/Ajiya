@@ -20,6 +20,25 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import android.app.Activity
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+import com.google.firebase.Firebase
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.auth
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Logout
+import com.example.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.BatteryChargingFull
@@ -112,6 +131,10 @@ fun HomeScreen(
     var isEvidenceCameraOpen by remember { mutableStateOf(false) }
     var isStandbyCameraOpen by remember { mutableStateOf(false) }
 
+    val coroutineScope = rememberCoroutineScope()
+    var firebaseUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+    var isAuthLoading by remember { mutableStateOf(false) }
+
     val scrollState = rememberScrollState()
 
     Column(
@@ -169,8 +192,104 @@ fun HomeScreen(
                     }
                 }
 
-                // Battery & Pro Plan Status
+                // Battery, Cloud Sync & Pro Plan Status
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Google Sign-In / Firebase Auth Indicator
+                    if (firebaseUser != null) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = SafeGreen.copy(alpha = 0.2f),
+                            modifier = Modifier
+                                .clickable {
+                                    Firebase.auth.signOut()
+                                    firebaseUser = null
+                                    viewModel.postStatusNotice("Signed out of Google Safe Sync.")
+                                }
+                                .testTag("firebase_account_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudDone,
+                                    contentDescription = "Cloud Synced",
+                                    tint = SafeGreen,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = firebaseUser?.displayName?.take(8) ?: "SYNCED",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SafeGreen
+                                )
+                            }
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = BeaconCyan.copy(alpha = 0.2f),
+                            modifier = Modifier
+                                .clickable(enabled = !isAuthLoading) {
+                                    isAuthLoading = true
+                                    val clientId = try {
+                                        context.getString(R.string.default_web_client_id)
+                                    } catch (e: Exception) {
+                                        viewModel.postStatusNotice("Google Sign-In configuration unavailable")
+                                        isAuthLoading = false
+                                        return@clickable
+                                    }
+                                    val credentialManager = CredentialManager.create(context)
+                                    val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
+                                    val request = GetCredentialRequest.Builder().addCredentialOption(signInOption).build()
+
+                                    coroutineScope.launch {
+                                        try {
+                                            val result = credentialManager.getCredential(context as Activity, request)
+                                            val credential = result.credential
+                                            if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                                                val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
+                                                val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
+                                                val authResult = Firebase.auth.signInWithCredential(authCredential).await()
+                                                firebaseUser = authResult.user
+                                                viewModel.postStatusNotice("Google Safe Sync active: ${authResult.user?.displayName ?: "Signed in"}")
+                                            }
+                                        } catch (e: GetCredentialCancellationException) {
+                                            android.util.Log.w("Auth", "Google Sign-In cancelled: ${e.message}")
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("Auth", "Google Sign-In error", e)
+                                            viewModel.postStatusNotice("Sign in failed: ${e.localizedMessage}")
+                                        } finally {
+                                            isAuthLoading = false
+                                        }
+                                    }
+                                }
+                                .testTag("google_sign_in_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = "Sign in with Google",
+                                    tint = BeaconCyan,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isAuthLoading) "..." else "SIGN IN",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = BeaconCyan
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
                     // Guardian Pro Badge / Navigation
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -199,7 +318,7 @@ fun HomeScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     // Battery indicator
                     Row(

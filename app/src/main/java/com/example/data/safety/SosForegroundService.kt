@@ -53,7 +53,7 @@ class SosForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
 
     private lateinit var database: AppDatabase
-    private val remoteDispatcher = SosRemoteDispatcher()
+    private lateinit var remoteDispatcher: SosRemoteDispatcher
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var notificationManager: NotificationManager
 
@@ -109,6 +109,7 @@ class SosForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         database = AppDatabase.getInstance(applicationContext)
+        remoteDispatcher = SosRemoteDispatcher(context = applicationContext)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
