@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">AJIYA</string>
+    <string name="default_web_client_id" translatable="false">76355723044-fjvtmvkdvvog778rhg2moca1hm3bvfav.apps.googleusercontent.com</string>
 </resources>

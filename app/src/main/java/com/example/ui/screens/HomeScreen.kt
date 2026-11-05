@@ -234,7 +234,12 @@ fun HomeScreen(
                                 .clickable(enabled = !isAuthLoading) {
                                     isAuthLoading = true
                                     val clientId = try {
-                                        context.getString(R.string.default_web_client_id)
+                                        val resId = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+                                        if (resId != 0) {
+                                            context.getString(resId)
+                                        } else {
+                                            context.getString(R.string.default_web_client_id)
+                                        }
                                     } catch (e: Exception) {
                                         viewModel.postStatusNotice("Google Sign-In configuration unavailable")
                                         isAuthLoading = false
