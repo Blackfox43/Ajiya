@@ -52,10 +52,12 @@ import com.example.data.model.SosEventEntity
 import com.example.ui.theme.AlertAmber
 import com.example.ui.theme.BeaconCyan
 import com.example.ui.theme.CrimsonPrimary
+import androidx.activity.compose.BackHandler
 import com.example.ui.theme.NavyCardBorder
 import com.example.ui.theme.NavySurface
 import com.example.ui.theme.NavySurfaceVariant
 import com.example.ui.theme.SafeGreen
+import com.example.ui.viewmodel.AppNavDestination
 import com.example.ui.viewmodel.SafetyViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -66,6 +68,10 @@ fun HistoryScreen(
     viewModel: SafetyViewModel,
     modifier: Modifier = Modifier
 ) {
+    BackHandler {
+        viewModel.navigateTo(AppNavDestination.HOME)
+    }
+
     val events by viewModel.allEvents.collectAsState()
     val playingAudio by viewModel.currentlyPlayingAudio.collectAsState()
 

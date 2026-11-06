@@ -33,17 +33,27 @@ class BatteryDeathReceiver : BroadcastReceiver() {
         private var hasTriggeredForCurrentCycle = false
 
         /**
-         * Helper to dynamically register receiver in application lifecycle.
+         * Helper to dynamically register receiver in application lifecycle safely across all Android versions.
          */
-        fun register(context: Context): BatteryDeathReceiver {
-            val receiver = BatteryDeathReceiver()
-            val filter = IntentFilter().apply {
-                addAction(Intent.ACTION_BATTERY_CHANGED)
-                addAction(Intent.ACTION_BATTERY_LOW)
+        fun register(context: Context): BatteryDeathReceiver? {
+            return try {
+                val receiver = BatteryDeathReceiver()
+                val filter = IntentFilter().apply {
+                    addAction(Intent.ACTION_BATTERY_CHANGED)
+                    addAction(Intent.ACTION_BATTERY_LOW)
+                }
+                androidx.core.content.ContextCompat.registerReceiver(
+                    context,
+                    receiver,
+                    filter,
+                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+                )
+                Log.i(TAG, "BatteryDeathReceiver registered successfully.")
+                receiver
+            } catch (e: Throwable) {
+                Log.w(TAG, "BatteryDeathReceiver registration handled gracefully: ${e.message}")
+                null
             }
-            context.registerReceiver(receiver, filter)
-            Log.i(TAG, "BatteryDeathReceiver registered successfully.")
-            return receiver
         }
 
         /**

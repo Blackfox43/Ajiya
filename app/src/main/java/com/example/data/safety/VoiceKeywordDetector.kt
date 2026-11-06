@@ -33,6 +33,15 @@ class VoiceKeywordDetector(
     fun startListening(): Boolean {
         if (isListening) return true
 
+        val hasAudioPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!hasAudioPermission) {
+            onStatusUpdate("Microphone permission required for voice trigger")
+            return false
+        }
+
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             Log.w(tag, "Speech recognition not available on this device.")
             onStatusUpdate("Voice recognition hardware unavailable")

@@ -57,9 +57,18 @@ import com.example.ui.theme.NavySurface
 import com.example.ui.viewmodel.AppNavDestination
 import com.example.ui.viewmodel.SafetyViewModel
 
+import com.google.firebase.FirebaseApp
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        try {
+            if (FirebaseApp.getApps(this).isEmpty()) {
+                FirebaseApp.initializeApp(this)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "FirebaseApp initialization failed", e)
+        }
         enableEdgeToEdge()
         setContent {
             AjiyaTheme {

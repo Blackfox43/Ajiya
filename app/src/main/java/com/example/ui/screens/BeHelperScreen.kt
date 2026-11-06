@@ -62,8 +62,10 @@ import com.example.ui.theme.BeaconCyan
 import com.example.ui.theme.CrimsonPrimary
 import com.example.ui.theme.NavyCardBorder
 import com.example.ui.theme.NavySurface
+import androidx.activity.compose.BackHandler
 import com.example.ui.theme.NavySurfaceVariant
 import com.example.ui.theme.SafeGreen
+import com.example.ui.viewmodel.AppNavDestination
 import com.example.ui.viewmodel.SafetyViewModel
 
 @Composable
@@ -71,6 +73,10 @@ fun BeHelperScreen(
     viewModel: SafetyViewModel,
     modifier: Modifier = Modifier
 ) {
+    BackHandler {
+        viewModel.navigateTo(AppNavDestination.HOME)
+    }
+
     val currentUser by viewModel.currentUser.collectAsState()
     val alerts by viewModel.helperAlerts.collectAsState()
     val activeSos by viewModel.activeSos.collectAsState()

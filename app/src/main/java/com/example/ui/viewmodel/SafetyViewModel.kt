@@ -67,7 +67,7 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
         }
     )
 
-    private val batteryDeathReceiver: BatteryDeathReceiver by lazy {
+    private val batteryDeathReceiver: BatteryDeathReceiver? by lazy {
         BatteryDeathReceiver.register(application)
     }
 

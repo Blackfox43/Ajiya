@@ -42,7 +42,7 @@
 
         <receiver
             android:name=".data.safety.BatteryDeathReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BATTERY_LOW" />
                 <action android:name="android.intent.action.ACTION_SHUTDOWN" />

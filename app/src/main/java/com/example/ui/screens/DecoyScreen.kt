@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import com.example.ui.viewmodel.SafetyViewModel
 
 data class DecoyNote(val id: Int, val text: String, var isDone: Boolean = false)
@@ -56,6 +57,10 @@ fun DecoyScreen(
     viewModel: SafetyViewModel,
     modifier: Modifier = Modifier
 ) {
+    BackHandler {
+        // Prevent revealing safety app under duress when back gesture/button is pressed
+    }
+
     val notes = remember {
         mutableStateListOf<DecoyNote>()
     }

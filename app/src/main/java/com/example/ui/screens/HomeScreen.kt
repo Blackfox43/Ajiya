@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -132,7 +133,15 @@ fun HomeScreen(
     var isStandbyCameraOpen by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
-    var firebaseUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+    var firebaseUser by remember {
+        mutableStateOf(
+            try {
+                Firebase.auth.currentUser
+            } catch (e: Throwable) {
+                null
+            }
+        )
+    }
     var isAuthLoading by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
@@ -201,7 +210,11 @@ fun HomeScreen(
                             color = SafeGreen.copy(alpha = 0.2f),
                             modifier = Modifier
                                 .clickable {
-                                    Firebase.auth.signOut()
+                                    try {
+                                        Firebase.auth.signOut()
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("HomeScreen", "Sign out error", e)
+                                    }
                                     firebaseUser = null
                                     viewModel.postStatusNotice("Signed out of Google Safe Sync.")
                                 }
@@ -251,7 +264,15 @@ fun HomeScreen(
 
                                     coroutineScope.launch {
                                         try {
-                                            val result = credentialManager.getCredential(context as Activity, request)
+                                            val activity = generateSequence(context) { (it as? ContextWrapper)?.baseContext }
+                                                .filterIsInstance<Activity>()
+                                                .firstOrNull() ?: (context as? Activity)
+                                            if (activity == null) {
+                                                viewModel.postStatusNotice("Unable to locate Activity for sign in")
+                                                isAuthLoading = false
+                                                return@launch
+                                            }
+                                            val result = credentialManager.getCredential(activity, request)
                                             val credential = result.credential
                                             if (credential is CustomCredential && credential.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                                                 val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
@@ -262,7 +283,7 @@ fun HomeScreen(
                                             }
                                         } catch (e: GetCredentialCancellationException) {
                                             android.util.Log.w("Auth", "Google Sign-In cancelled: ${e.message}")
-                                        } catch (e: Exception) {
+                                        } catch (e: Throwable) {
                                             android.util.Log.e("Auth", "Google Sign-In error", e)
                                             viewModel.postStatusNotice("Sign in failed: ${e.localizedMessage}")
                                         } finally {

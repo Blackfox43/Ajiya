@@ -48,6 +48,16 @@ class GeofenceSafetyManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun registerSafeZone(zone: SafeZone, onSuccess: () -> Unit = {}, onFailure: (Exception) -> Unit = {}) {
+        val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!hasFine) {
+            Log.w(tag, "Geofencing registration skipped: ACCESS_FINE_LOCATION not granted")
+            onFailure(SecurityException("ACCESS_FINE_LOCATION permission not granted"))
+            return
+        }
+
         try {
             val geofence = Geofence.Builder()
                 .setRequestId(zone.id)

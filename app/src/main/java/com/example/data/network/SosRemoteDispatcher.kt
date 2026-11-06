@@ -319,12 +319,13 @@ class SosRemoteDispatcher(
     private fun getFirestore(): FirebaseFirestore? {
         return try {
             val dbId = context?.getString(R.string.firestore_database_id)
+            val app = com.google.firebase.FirebaseApp.getInstance()
             if (!dbId.isNullOrBlank()) {
-                FirebaseFirestore.getInstance(dbId)
+                FirebaseFirestore.getInstance(app, dbId)
             } else {
-                FirebaseFirestore.getInstance()
+                FirebaseFirestore.getInstance(app)
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.d(tag, "Firestore instance not available or offline: ${e.message}")
             null
         }

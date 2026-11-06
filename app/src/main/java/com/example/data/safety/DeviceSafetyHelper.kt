@@ -33,12 +33,25 @@ class DeviceSafetyHelper(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
 
     /**
-     * Reads system battery percentage
+     * Reads system battery percentage safely across Android versions
      */
     fun getBatteryLevel(): Int {
         return try {
             val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-            val batteryStatus = context.registerReceiver(null, intentFilter)
+            val batteryStatus = try {
+                androidx.core.content.ContextCompat.registerReceiver(
+                    context,
+                    null,
+                    intentFilter,
+                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+                )
+            } catch (e: Throwable) {
+                try {
+                    context.registerReceiver(null, intentFilter)
+                } catch (t: Throwable) {
+                    null
+                }
+            }
             val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
             val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
             if (level >= 0 && scale > 0) {
@@ -46,7 +59,7 @@ class DeviceSafetyHelper(private val context: Context) {
             } else {
                 84 // fallback realistic battery
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             84
         }
     }
@@ -57,6 +70,19 @@ class DeviceSafetyHelper(private val context: Context) {
     suspend fun getCurrentCoordinates(): Pair<Double, Double> {
         return withContext(Dispatchers.IO) {
             try {
+                val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.ACCESS_FINE_LOCATION
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                if (!hasFine && !hasCoarse) {
+                    return@withContext Pair(6.4281, 3.4219)
+                }
+
                 var lat: Double? = null
                 var lng: Double? = null
 

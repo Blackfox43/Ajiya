@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import com.example.data.subscription.SubscriptionTier
 import com.example.ui.viewmodel.AppNavDestination
 import com.example.ui.viewmodel.SafetyViewModel
@@ -71,6 +72,10 @@ fun SubscriptionPaywallScreen(
     viewModel: SafetyViewModel,
     modifier: Modifier = Modifier
 ) {
+    BackHandler {
+        viewModel.navigateTo(AppNavDestination.HOME)
+    }
+
     val isSubscribed by viewModel.isSubscribed.collectAsState()
     val currentTier by viewModel.currentTier.collectAsState()
     val user by viewModel.currentUser.collectAsState()
