@@ -217,11 +217,17 @@ fun HistoryScreen(
                             event.audioUrl?.let { path -> viewModel.playAudio(path) }
                         },
                         onOpenMap = {
-                            viewModel.openLocationInGoogleMaps(
-                                event.lat,
-                                event.lng,
-                                "Incident ${event.id}: ${event.address}"
-                            )
+                            val eLat = event.lat
+                            val eLng = event.lng
+                            if (eLat != null && eLng != null) {
+                                viewModel.openLocationInGoogleMaps(
+                                    eLat,
+                                    eLng,
+                                    "Incident ${event.id}: ${event.address}"
+                                )
+                            } else {
+                                viewModel.postStatusNotice("GPS coordinates unavailable for incident ${event.id}")
+                            }
                         }
                     )
                 }

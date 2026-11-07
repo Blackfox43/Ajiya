@@ -454,9 +454,13 @@ fun HomeScreen(
 
                         OutlinedButton(
                             onClick = {
-                                val lat = activeSos?.lat ?: 6.4281
-                                val lng = activeSos?.lng ?: 3.4219
-                                viewModel.openLocationInGoogleMaps(lat, lng, "Active Emergency SOS ($selectedMode)")
+                                val lat = activeSos?.lat
+                                val lng = activeSos?.lng
+                                if (lat != null && lng != null) {
+                                    viewModel.openLocationInGoogleMaps(lat, lng, "Active Emergency SOS ($selectedMode)")
+                                } else {
+                                    android.widget.Toast.makeText(context, "GPS location is currently unavailable", android.widget.Toast.LENGTH_SHORT).show()
+                                }
                             },
                             modifier = Modifier.testTag("sos_open_google_maps_button")
                         ) {
@@ -728,8 +732,8 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             LiveSafetyMap(
-                lat = activeSos?.lat ?: 6.4281,
-                lng = activeSos?.lng ?: 3.4219,
+                lat = activeSos?.lat,
+                lng = activeSos?.lng,
                 pings = pings,
                 isTrackingActive = isSosActive,
                 helperAlerts = if (currentUser?.isHelper == true) helperAlerts.filter { it.status != "DECLINED" } else emptyList(),
@@ -787,10 +791,14 @@ fun HomeScreen(
 
                     Button(
                         onClick = {
-                            val targetLat = activeSos?.lat ?: 6.4281
-                            val targetLng = activeSos?.lng ?: 3.4219
-                            val label = if (isSosActive) "Active SOS Incident ($selectedMode)" else "Current Location ($address)"
-                            viewModel.openLocationInGoogleMaps(targetLat, targetLng, label)
+                            val targetLat = activeSos?.lat
+                            val targetLng = activeSos?.lng
+                            if (targetLat != null && targetLng != null) {
+                                val label = if (isSosActive) "Active SOS Incident ($selectedMode)" else "Current Location ($address)"
+                                viewModel.openLocationInGoogleMaps(targetLat, targetLng, label)
+                            } else {
+                                android.widget.Toast.makeText(context, "Location unavailable (Waiting for GPS fix)", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E3A6E)),
                         shape = RoundedCornerShape(8.dp),

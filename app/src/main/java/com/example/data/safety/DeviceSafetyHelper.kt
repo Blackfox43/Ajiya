@@ -65,9 +65,11 @@ class DeviceSafetyHelper(private val context: Context) {
     }
 
     /**
-     * Gets real device GPS location or returns realistic safe fallback coordinates
+     * Gets real device GPS location using FusedLocationProviderClient.
+     * Returns null if location is unavailable or permission is denied.
+     * NEVER returns fabricated or hardcoded fallback coordinates.
      */
-    suspend fun getCurrentCoordinates(): Pair<Double, Double> {
+    suspend fun getCurrentCoordinates(): Pair<Double, Double>? {
         return withContext(Dispatchers.IO) {
             try {
                 val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
@@ -80,7 +82,8 @@ class DeviceSafetyHelper(private val context: Context) {
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
                 if (!hasFine && !hasCoarse) {
-                    return@withContext Pair(6.4281, 3.4219)
+                    Log.w("DeviceSafetyHelper", "Location permissions not granted.")
+                    return@withContext null
                 }
 
                 var lat: Double? = null
@@ -92,53 +95,71 @@ class DeviceSafetyHelper(private val context: Context) {
                         Priority.PRIORITY_HIGH_ACCURACY,
                         cts.token
                     )
-                    // Wait briefly for location
+                    // Wait up to 3500ms for fresh GPS lock
                     val location: Location? = com.google.android.gms.tasks.Tasks.await(
                         locationTask,
-                        3000,
+                        3500,
                         java.util.concurrent.TimeUnit.MILLISECONDS
                     )
-                    if (location != null) {
+                    if (location != null && isValidCoordinates(location.latitude, location.longitude)) {
                         lat = location.latitude
                         lng = location.longitude
                     }
                 } catch (e: Exception) {
-                    Log.w("DeviceSafetyHelper", "Fused location failed, trying lastLocation: ${e.message}")
+                    Log.w("DeviceSafetyHelper", "Fused getCurrentLocation failed: ${e.message}")
                 }
 
+                // If immediate high accuracy fix timed out, check last known location
                 if (lat == null || lng == null) {
-                    val lastTask = fusedLocationClient.lastLocation
-                    val lastLoc: Location? = com.google.android.gms.tasks.Tasks.await(
-                        lastTask,
-                        1500,
-                        java.util.concurrent.TimeUnit.MILLISECONDS
-                    )
-                    if (lastLoc != null) {
-                        lat = lastLoc.latitude
-                        lng = lastLoc.longitude
+                    try {
+                        val lastTask = fusedLocationClient.lastLocation
+                        val lastLoc: Location? = com.google.android.gms.tasks.Tasks.await(
+                            lastTask,
+                            1500,
+                            java.util.concurrent.TimeUnit.MILLISECONDS
+                        )
+                        if (lastLoc != null && isValidCoordinates(lastLoc.latitude, lastLoc.longitude)) {
+                            // Check that last location isn't stale (> 2 hours old)
+                            val age = System.currentTimeMillis() - lastLoc.time
+                            if (age < 2 * 60 * 60 * 1000L) {
+                                lat = lastLoc.latitude
+                                lng = lastLoc.longitude
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("DeviceSafetyHelper", "Fused lastLocation query failed: ${e.message}")
                     }
                 }
 
                 if (lat != null && lng != null) {
                     Pair(lat, lng)
                 } else {
-                    // Safe reference default (e.g. Victoria Island / Marina / Lagos axis or user region)
-                    Pair(6.4281, 3.4219)
+                    Log.w("DeviceSafetyHelper", "Real GPS location could not be determined.")
+                    null
                 }
             } catch (e: SecurityException) {
-                Log.w("DeviceSafetyHelper", "Location permission not granted: ${e.message}")
-                Pair(6.4281, 3.4219)
+                Log.w("DeviceSafetyHelper", "Location permission missing: ${e.message}")
+                null
             } catch (e: Exception) {
-                Log.w("DeviceSafetyHelper", "Error getting location: ${e.message}")
-                Pair(6.4281, 3.4219)
+                Log.e("DeviceSafetyHelper", "Error acquiring GPS coordinates: ${e.message}")
+                null
             }
         }
     }
 
+    private fun isValidCoordinates(lat: Double, lng: Double): Boolean {
+        return lat in -90.0..90.0 && lng in -180.0..180.0 && !(lat == 0.0 && lng == 0.0)
+    }
+
     /**
-     * Reverse geocodes coordinates to street address
+     * Reverse geocodes coordinates to street address.
+     * Displays explicit LOCATION UNAVAILABLE status when location cannot be determined.
+     * Never returns fabricated street names.
      */
-    suspend fun reverseGeocode(lat: Double, lng: Double): String {
+    suspend fun reverseGeocode(lat: Double?, lng: Double?): String {
+        if (lat == null || lng == null || !isValidCoordinates(lat, lng)) {
+            return "Location Unavailable (Searching GPS...)"
+        }
         return withContext(Dispatchers.IO) {
             try {
                 val geocoder = Geocoder(context, Locale.getDefault())
@@ -151,10 +172,10 @@ class DeviceSafetyHelper(private val context: Context) {
                     val parts = listOf(thoroughfare, locality, adminArea).filter { it.isNotBlank() }
                     if (parts.isNotEmpty()) parts.joinToString(", ") else address.getAddressLine(0) ?: "Lat: %.4f, Lng: %.4f".format(lat, lng)
                 } else {
-                    "Ahmadu Bello Way, Victoria Island, Lagos"
+                    "Lat: %.4f, Lng: %.4f (Street address unavailable)".format(lat, lng)
                 }
             } catch (e: Exception) {
-                "Ahmadu Bello Way, Victoria Island, Lagos"
+                "Lat: %.4f, Lng: %.4f".format(lat, lng)
             }
         }
     }

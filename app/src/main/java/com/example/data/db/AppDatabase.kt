@@ -10,10 +10,13 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import com.example.data.model.DonationRecordEntity
 import com.example.data.model.HelperAlertEntity
 import com.example.data.model.LocationPingEntity
+import com.example.data.model.PaymentTransactionEntity
 import com.example.data.model.SosEventEntity
 import com.example.data.model.TrustedContactEntity
+import com.example.data.model.UserEntitlementEntity
 import com.example.data.model.UserEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -66,6 +69,9 @@ interface TrustedContactDao {
 
     @Query("UPDATE trusted_contacts SET lastNotifiedTimestamp = :timestamp WHERE id = :id")
     suspend fun updateLastNotified(id: Long, timestamp: Long = System.currentTimeMillis())
+
+    @Query("UPDATE trusted_contacts SET deliveryStatus = :status, lastNotifiedTimestamp = :timestamp WHERE id = :id")
+    suspend fun updateDeliveryStatus(id: Long, status: String, timestamp: Long = System.currentTimeMillis())
 }
 
 @Dao
@@ -89,7 +95,13 @@ interface SosEventDao {
     suspend fun updateEvent(event: SosEventEntity)
 
     @Query("UPDATE sos_events SET lat = :lat, lng = :lng, address = :address WHERE id = :id")
-    suspend fun updateLocation(id: String, lat: Double, lng: Double, address: String)
+    suspend fun updateLocation(id: String, lat: Double?, lng: Double?, address: String)
+
+    @Query("UPDATE sos_events SET deliveryStatus = :status WHERE id = :id")
+    suspend fun updateDeliveryStatus(id: String, status: String)
+
+    @Query("SELECT * FROM sos_events WHERE deliveryStatus IN ('PENDING', 'FAILED', 'RETRYING')")
+    suspend fun getPendingSyncEvents(): List<SosEventEntity>
 
     @Query("UPDATE sos_events SET audioUrl = :audioUrl WHERE id = :id")
     suspend fun updateAudioUrl(id: String, audioUrl: String)
@@ -137,15 +149,66 @@ interface HelperAlertDao {
     suspend fun deleteAlert(alertId: String)
 }
 
+@Dao
+interface PaymentTransactionDao {
+    @Query("SELECT * FROM payment_transactions ORDER BY timestamp DESC")
+    fun getAllTransactions(): Flow<List<PaymentTransactionEntity>>
+
+    @Query("SELECT * FROM payment_transactions WHERE reference = :reference LIMIT 1")
+    suspend fun getByReference(reference: String): PaymentTransactionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTransaction(transaction: PaymentTransactionEntity)
+
+    @Query("UPDATE payment_transactions SET status = :status WHERE reference = :reference")
+    suspend fun updateStatus(reference: String, status: String)
+
+    @Query("DELETE FROM payment_transactions")
+    suspend fun clearAll()
+}
+
+@Dao
+interface UserEntitlementDao {
+    @Query("SELECT * FROM user_entitlements WHERE userId = :userId LIMIT 1")
+    fun getEntitlement(userId: String = "user_default"): Flow<UserEntitlementEntity?>
+
+    @Query("SELECT * FROM user_entitlements WHERE userId = :userId LIMIT 1")
+    suspend fun getEntitlementSync(userId: String = "user_default"): UserEntitlementEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEntitlement(entitlement: UserEntitlementEntity)
+
+    @Query("DELETE FROM user_entitlements WHERE userId = :userId")
+    suspend fun clearEntitlement(userId: String = "user_default")
+}
+
+@Dao
+interface DonationRecordDao {
+    @Query("SELECT * FROM donation_records ORDER BY timestamp DESC")
+    fun getAllDonations(): Flow<List<DonationRecordEntity>>
+
+    @Query("SELECT * FROM donation_records WHERE reference = :reference LIMIT 1")
+    suspend fun getByReference(reference: String): DonationRecordEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDonation(donation: DonationRecordEntity)
+
+    @Query("DELETE FROM donation_records")
+    suspend fun clearAll()
+}
+
 @Database(
     entities = [
         UserEntity::class,
         TrustedContactEntity::class,
         SosEventEntity::class,
         LocationPingEntity::class,
-        HelperAlertEntity::class
+        HelperAlertEntity::class,
+        PaymentTransactionEntity::class,
+        UserEntitlementEntity::class,
+        DonationRecordEntity::class
     ],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -154,6 +217,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun sosEventDao(): SosEventDao
     abstract fun locationPingDao(): LocationPingDao
     abstract fun helperAlertDao(): HelperAlertDao
+    abstract fun paymentTransactionDao(): PaymentTransactionDao
+    abstract fun userEntitlementDao(): UserEntitlementDao
+    abstract fun donationRecordDao(): DonationRecordDao
 
     companion object {
         @Volatile
@@ -165,7 +231,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ajiya_safety_db"
-                ).build()
+                ).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }

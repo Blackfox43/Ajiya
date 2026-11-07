@@ -102,7 +102,9 @@ class BatteryDeathReceiver : BroadcastReceiver() {
                 val termiiGateway = TermiiSmsGateway(context)
 
                 val coords = deviceHelper.getCurrentCoordinates()
-                val address = deviceHelper.reverseGeocode(coords.first, coords.second)
+                val lat = coords?.first
+                val lng = coords?.second
+                val address = deviceHelper.reverseGeocode(lat, lng)
                 val user = db.userDao().getUserSync()
                 val contacts = db.trustedContactDao().getAllContactsSync()
 
@@ -111,8 +113,8 @@ class BatteryDeathReceiver : BroadcastReceiver() {
                 // 1. Send POST to /last-location on remote backend
                 remoteDispatcher.sendLastLocationOnBatteryDeath(
                     userId = user?.id ?: "user_default",
-                    lat = coords.first,
-                    lng = coords.second,
+                    lat = lat,
+                    lng = lng,
                     address = address,
                     batteryLevel = batteryLevel
                 )

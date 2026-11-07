@@ -6,13 +6,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class DistributionChannel {
+    PLAY_STORE,
+    DIRECT_APK
+}
+
 data class AppConfigState(
     val isProductionMode: Boolean = false,
-    val termiiApiKey: String = "TLR_TERMI_KEY_LIVE_MOCK",
+    val distributionChannel: DistributionChannel = DistributionChannel.PLAY_STORE,
+    val termiiApiKey: String = "",
     val termiiSenderId: String = "AJIYA_ALERT",
-    val paystackPublicKey: String = "pk_test_ajiya_live_mock_paystack_key_999",
-    val supabaseUrl: String = "https://mock-ajiya.supabase.co",
-    val supabaseAnonKey: String = "mock_key_prod",
+    val paystackPublicKey: String = "pk_test_ajiya_sandbox_demo",
+    val supabaseUrl: String = "",
+    val supabaseAnonKey: String = "",
     val emergencyHotline: String = "112",
     val backgroundLocationConsentGranted: Boolean = false,
     val smsConsentGranted: Boolean = false
@@ -31,17 +37,30 @@ class AppConfigManager(context: Context) {
     val configState: StateFlow<AppConfigState> = _configState.asStateFlow()
 
     private fun loadConfig(): AppConfigState {
+        val channelStr = prefs.getString("distribution_channel", DistributionChannel.PLAY_STORE.name)
+            ?: DistributionChannel.PLAY_STORE.name
+        val channel = try {
+            DistributionChannel.valueOf(channelStr)
+        } catch (e: Exception) {
+            DistributionChannel.PLAY_STORE
+        }
         return AppConfigState(
             isProductionMode = prefs.getBoolean("is_production_mode", false),
-            termiiApiKey = prefs.getString("termii_api_key", "TLR_TERMI_KEY_LIVE_MOCK") ?: "TLR_TERMI_KEY_LIVE_MOCK",
+            distributionChannel = channel,
+            termiiApiKey = prefs.getString("termii_api_key", "") ?: "",
             termiiSenderId = prefs.getString("termii_sender_id", "AJIYA_ALERT") ?: "AJIYA_ALERT",
-            paystackPublicKey = prefs.getString("paystack_public_key", "pk_test_ajiya_live_mock_paystack_key_999") ?: "pk_test_ajiya_live_mock_paystack_key_999",
-            supabaseUrl = prefs.getString("supabase_url", "https://mock-ajiya.supabase.co") ?: "https://mock-ajiya.supabase.co",
-            supabaseAnonKey = prefs.getString("supabase_anon_key", "mock_key_prod") ?: "mock_key_prod",
+            paystackPublicKey = prefs.getString("paystack_public_key", "pk_test_ajiya_sandbox_demo") ?: "pk_test_ajiya_sandbox_demo",
+            supabaseUrl = prefs.getString("supabase_url", "") ?: "",
+            supabaseAnonKey = prefs.getString("supabase_anon_key", "") ?: "",
             emergencyHotline = prefs.getString("emergency_hotline", "112") ?: "112",
             backgroundLocationConsentGranted = prefs.getBoolean("bg_location_consent", false),
             smsConsentGranted = prefs.getBoolean("sms_consent", false)
         )
+    }
+
+    fun setDistributionChannel(channel: DistributionChannel) {
+        prefs.edit().putString("distribution_channel", channel.name).apply()
+        _configState.value = loadConfig()
     }
 
     fun setProductionMode(isProd: Boolean) {

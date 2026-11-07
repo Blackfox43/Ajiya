@@ -91,6 +91,13 @@ jobs:
           echo "Debug keystore ready:"
           ls -lh "$GITHUB_WORKSPACE/debug.keystore"
 
+      - name: Run Unit Tests
+        run: |
+          ./gradlew testDebugUnitTest \
+            --stacktrace \
+            --no-daemon \
+            --console=plain
+
       - name: Build Debug APK
         run: |
           ./gradlew assembleDebug \

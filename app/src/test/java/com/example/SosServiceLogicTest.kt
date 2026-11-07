@@ -12,12 +12,23 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.Before
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class SosServiceLogicTest {
+
+    @Before
+    fun setUp() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("ajiya_subscription_prefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        com.example.data.config.AppConfigManager.getInstance(context).resetToDefaults()
+    }
 
     @Test
     fun `verify SOS intent actions and constants`() {
@@ -142,13 +153,18 @@ class SosServiceLogicTest {
     }
 
     @Test
-    fun `verify Geofence Safe Zones configuration`() {
-        val safeZones = com.example.data.safety.GeofenceSafetyManager.DEFAULT_SAFE_ZONES
-        assertEquals(3, safeZones.size)
-        assertTrue(safeZones.any { it.name == "Home Safe Zone" })
-        assertTrue(safeZones.any { it.name == "Workplace / Campus" })
-        assertTrue(safeZones.any { it.name == "Victoria Island Safety Haven" })
-        assertTrue(safeZones.all { it.radiusMeters >= 100f })
+    fun `verify Geofence Safe Zones creation and dynamic configuration`() {
+        val safeZone = com.example.data.safety.GeofenceSafetyManager.createSafeZone(
+            name = "Safe Haven Hub",
+            lat = 9.0765,
+            lng = 7.3986,
+            radius = 350f
+        )
+        assertNotNull(safeZone)
+        assertEquals("Safe Haven Hub", safeZone.name)
+        assertEquals(9.0765, safeZone.latitude, 0.0001)
+        assertEquals(7.3986, safeZone.longitude, 0.0001)
+        assertEquals(350f, safeZone.radiusMeters, 0.1f)
     }
 
     @Test
@@ -183,6 +199,8 @@ class SosServiceLogicTest {
         assertTrue(configManager.configState.value.backgroundLocationConsentGranted)
         configManager.setSmsConsent(true)
         assertTrue(configManager.configState.value.smsConsentGranted)
+
+        configManager.resetToDefaults()
     }
 
     @Test
@@ -211,5 +229,63 @@ class SosServiceLogicTest {
         assertTrue(videoFile.name.endsWith(".mp4"))
         assertEquals(context.filesDir.absolutePath, photoFile.parentFile?.absolutePath)
         assertEquals(context.filesDir.absolutePath, videoFile.parentFile?.absolutePath)
+    }
+
+    @Test
+    fun `verify SOS event and battery death with null coordinates executes safely`() = runBlocking {
+        val dispatcher = SosRemoteDispatcher()
+        val nullLocSos = SosEventEntity(
+            id = "SOS-NULL-GPS",
+            userId = "user_null_test",
+            lat = null,
+            lng = null,
+            address = "Location Unavailable (Searching GPS...)",
+            battery = 50,
+            mode = "KIDNAP_SILENT"
+        )
+        val result = dispatcher.dispatchSosEvent(nullLocSos, null, emptyList())
+        assertNotNull(result)
+
+        val beaconResult = dispatcher.sendLastLocationOnBatteryDeath(
+            userId = "user_null_test",
+            lat = null,
+            lng = null,
+            address = "Location Unavailable (Searching GPS...)",
+            batteryLevel = 1
+        )
+        assertNotNull(beaconResult)
+        assertTrue(beaconResult.isSuccess)
+    }
+
+    @Test
+    fun `verify duplicate payment reference rejection and expiry tracking`() = runBlocking {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("ajiya_subscription_prefs", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+        com.example.data.config.AppConfigManager.getInstance(context).resetToDefaults()
+        val manager = com.example.data.subscription.SubscriptionManager(context)
+        val tier = com.example.data.subscription.SubscriptionTier.GUARDIAN_MONTHLY
+        val ref = "AJIYA_PAY_TEST_UNIQUE_123"
+
+        val firstVerify = manager.verifyAndActivatePayment(tier, ref)
+        assertTrue(firstVerify.isSuccess)
+        assertTrue(firstVerify.expiryTimestamp > System.currentTimeMillis())
+
+        // Replay attempt with same reference must be rejected
+        val duplicateVerify = manager.verifyAndActivatePayment(tier, ref)
+        assertEquals(false, duplicateVerify.isSuccess)
+        assertTrue(duplicateVerify.message.contains("Duplicate transaction"))
+    }
+
+    @Test
+    fun `verify OfflineEmergencySyncManager lifecycle and pending events sync`() = runBlocking {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val db = com.example.data.db.AppDatabase.getInstance(context)
+        val dispatcher = SosRemoteDispatcher(context)
+        val syncManager = com.example.data.sync.OfflineEmergencySyncManager(context, db, dispatcher)
+
+        // Starting and stopping listening must not throw
+        syncManager.startListening()
+        syncManager.syncPendingEmergencyEvents()
+        syncManager.stopListening()
     }
 }

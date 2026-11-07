@@ -67,6 +67,7 @@ android {
 }
 
 tasks.withType<Test> {
+  systemProperty("robolectric.dependency.dir", "/home/appuser/.m2/repository/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7")
   failFast = true
   timeout.set(Duration.ofMinutes(2))
   testLogging {
@@ -131,6 +132,7 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  implementation(libs.billing.ktx)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

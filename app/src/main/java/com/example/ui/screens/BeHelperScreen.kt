@@ -86,8 +86,8 @@ fun BeHelperScreen(
     var selectedAlertId by remember { mutableStateOf<String?>(null) }
 
     // Helper device base coordinates
-    val helperLat = activeSos?.lat ?: 6.4281
-    val helperLng = activeSos?.lng ?: 3.4219
+    val helperLat = activeSos?.lat
+    val helperLng = activeSos?.lng
 
     LazyColumn(
         modifier = modifier
@@ -292,17 +292,25 @@ fun BeHelperScreen(
                                 val target = activeDistressAlerts.find { it.id == selectedAlertId }
                                     ?: activeDistressAlerts.firstOrNull()
                                 if (target != null) {
-                                    viewModel.openLocationInGoogleMaps(
-                                        target.lat,
-                                        target.lng,
-                                        "Distress: ${target.crisisType} (${target.distanceMeters}m)"
-                                    )
-                                } else {
+                                    val tLat = target.lat
+                                    val tLng = target.lng
+                                    if (tLat != null && tLng != null) {
+                                        viewModel.openLocationInGoogleMaps(
+                                            tLat,
+                                            tLng,
+                                            "Distress: ${target.crisisType} (${target.distanceMeters}m)"
+                                        )
+                                    } else {
+                                        viewModel.postStatusNotice("Distress victim location unavailable.")
+                                    }
+                                } else if (helperLat != null && helperLng != null) {
                                     viewModel.openLocationInGoogleMaps(
                                         helperLat,
                                         helperLng,
                                         "Helper Safe Zone Hub"
                                     )
+                                } else {
+                                    viewModel.postStatusNotice("Helper GPS location is currently unavailable.")
                                 }
                             },
                             shape = RoundedCornerShape(10.dp),
@@ -466,11 +474,17 @@ fun BeHelperScreen(
                         onAccept = { viewModel.respondToHelperAlert(alert.id, accept = true) },
                         onDecline = { viewModel.respondToHelperAlert(alert.id, accept = false) },
                         onOpenGoogleMaps = {
-                            viewModel.openLocationInGoogleMaps(
-                                alert.lat,
-                                alert.lng,
-                                "Victim Distress: ${alert.crisisType} (${alert.distanceMeters}m away)"
-                            )
+                            val aLat = alert.lat
+                            val aLng = alert.lng
+                            if (aLat != null && aLng != null) {
+                                viewModel.openLocationInGoogleMaps(
+                                    aLat,
+                                    aLng,
+                                    "Victim Distress: ${alert.crisisType} (${alert.distanceMeters}m away)"
+                                )
+                            } else {
+                                viewModel.postStatusNotice("Victim distress location is currently unavailable.")
+                            }
                         }
                     )
                 }

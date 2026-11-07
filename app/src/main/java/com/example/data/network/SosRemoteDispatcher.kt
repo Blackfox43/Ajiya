@@ -248,13 +248,23 @@ class SosRemoteDispatcher(
         }
     }
 
+    fun isSupabaseConfigured(): Boolean {
+        return !supabaseUrl.isNullOrBlank() &&
+                !supabaseUrl.contains("dummy") &&
+                !supabaseUrl.contains("mock") &&
+                !supabaseUrl.contains("ajiya-network.supabase.co") &&
+                !supabaseAnonKey.isNullOrBlank() &&
+                !supabaseAnonKey.contains("dummy") &&
+                !supabaseAnonKey.contains("mock")
+    }
+
     /**
      * Sends last location beacon when device reaches 1% critical battery shutdown.
      */
     suspend fun sendLastLocationOnBatteryDeath(
         userId: String,
-        lat: Double,
-        lng: Double,
+        lat: Double?,
+        lng: Double?,
         address: String,
         batteryLevel: Int = 1
     ): Result<Boolean> = withContext(Dispatchers.IO) {
@@ -262,28 +272,32 @@ class SosRemoteDispatcher(
             // 1. Sync to Firestore
             syncBatteryDeathToFirestore(userId, lat, lng, address, batteryLevel)
 
-            // 2. Sync to Supabase
-            val payload = JSONObject().apply {
-                put("user_id", userId)
-                put("lat", lat)
-                put("lng", lng)
-                put("address", address)
-                put("battery", batteryLevel)
-                put("event_type", "BATTERY_DEATH_SHUTDOWN")
-                put("timestamp", System.currentTimeMillis())
-            }
+            // 2. Sync to Supabase only if configured
+            if (isSupabaseConfigured()) {
+                val payload = JSONObject().apply {
+                    put("user_id", userId)
+                    put("lat", lat ?: JSONObject.NULL)
+                    put("lng", lng ?: JSONObject.NULL)
+                    put("address", address)
+                    put("battery", batteryLevel)
+                    put("event_type", "BATTERY_DEATH_SHUTDOWN")
+                    put("timestamp", System.currentTimeMillis())
+                }
 
-            Log.w(tag, "CRITICAL BATTERY DEATH (1%): Dispatching POST to /last-location...")
-            val request = Request.Builder()
-                .url("$supabaseUrl/rest/v1/location_pings")
-                .header("apikey", supabaseAnonKey)
-                .header("Authorization", "Bearer $supabaseAnonKey")
-                .header("Content-Type", "application/json")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
+                Log.w(tag, "CRITICAL BATTERY DEATH (1%): Dispatching POST to /last-location...")
+                val request = Request.Builder()
+                    .url("$supabaseUrl/rest/v1/location_pings")
+                    .header("apikey", supabaseAnonKey)
+                    .header("Authorization", "Bearer $supabaseAnonKey")
+                    .header("Content-Type", "application/json")
+                    .post(payload.toString().toRequestBody(jsonMediaType))
+                    .build()
 
-            client.newCall(request).execute().use { response ->
-                Log.i(tag, "Battery death /last-location recorded: HTTP ${response.code}")
+                client.newCall(request).execute().use { response ->
+                    Log.i(tag, "Battery death /last-location recorded: HTTP ${response.code}")
+                }
+            } else {
+                Log.d(tag, "Supabase battery death sync skipped: not configured.")
             }
             Result.success(true)
         } catch (e: Exception) {
@@ -293,6 +307,10 @@ class SosRemoteDispatcher(
     }
 
     private fun postToSupabase(table: String, jsonBody: String) {
+        if (!isSupabaseConfigured()) {
+            Log.d(tag, "Supabase sync to $table skipped: Supabase credentials not configured.")
+            return
+        }
         val url = "$supabaseUrl/rest/v1/$table"
         val request = Request.Builder()
             .url(url)
@@ -345,6 +363,7 @@ class SosRemoteDispatcher(
                 "audioUrl" to (sosEvent.audioUrl ?: ""),
                 "battery" to sosEvent.battery,
                 "status" to sosEvent.status,
+                "deliveryStatus" to sosEvent.deliveryStatus,
                 "crisisMode" to sosEvent.mode,
                 "createdAt" to sosEvent.createdAt,
                 "updatedAt" to System.currentTimeMillis()
@@ -428,8 +447,8 @@ class SosRemoteDispatcher(
 
     private fun syncBatteryDeathToFirestore(
         userId: String,
-        lat: Double,
-        lng: Double,
+        lat: Double?,
+        lng: Double?,
         address: String,
         batteryLevel: Int
     ) {
@@ -437,8 +456,9 @@ class SosRemoteDispatcher(
             val firestore = getFirestore() ?: return
             val beaconData = hashMapOf(
                 "userId" to userId,
-                "latitude" to lat,
-                "longitude" to lng,
+                "latitude" to (lat ?: 0.0),
+                "longitude" to (lng ?: 0.0),
+                "isLocationAvailable" to (lat != null && lng != null),
                 "address" to address,
                 "battery" to batteryLevel,
                 "eventType" to "BATTERY_DEATH_SHUTDOWN",

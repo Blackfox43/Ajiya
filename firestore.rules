@@ -57,6 +57,7 @@ service cloud.firestore {
              (!('latitude' in data) || data.latitude is number) &&
              (!('longitude' in data) || data.longitude is number) &&
              (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
+             (!('deliveryStatus' in data) || (data.deliveryStatus is string && data.deliveryStatus.size() <= 30)) &&
              (!('audioUrl' in data) || (data.audioUrl is string && data.audioUrl.size() <= 500)) &&
              (!('battery' in data) || data.battery is number);
     }
@@ -132,7 +133,7 @@ service cloud.firestore {
                        incoming().diff(existing()).affectedKeys().hasOnly([
                          'latitude', 'longitude', 'address', 'audioUrl',
                          'audioUpdatedAt', 'battery', 'status', 'resolvedAt',
-                         'updatedAt', 'lastPingTimestamp'
+                         'updatedAt', 'lastPingTimestamp', 'deliveryStatus'
                        ]);
 
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
@@ -152,6 +153,14 @@ service cloud.firestore {
 
         allow update, delete: if false; // Append-only breadcrumb audit log
       }
+    }
+
+    // 3. Critical Beacons Collection (1% Battery Shutdown)
+    match /critical_beacons/{beaconId} {
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if false; // Immutable audit record
     }
   }
 }

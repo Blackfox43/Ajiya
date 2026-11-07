@@ -167,7 +167,9 @@ class SafetyRepository(
         val mode = customMode ?: user?.activeCrisisMode ?: "KIDNAP_SILENT"
         val battery = deviceHelper.getBatteryLevel()
         val coords = deviceHelper.getCurrentCoordinates()
-        val address = deviceHelper.reverseGeocode(coords.first, coords.second)
+        val lat = coords?.first
+        val lng = coords?.second
+        val address = deviceHelper.reverseGeocode(lat, lng)
 
         val sosId = "SOS-${(100000 + (Math.random() * 900000).toInt())}"
 
@@ -179,8 +181,8 @@ class SafetyRepository(
         val newSos = SosEventEntity(
             id = sosId,
             userId = user?.id ?: "user_default",
-            lat = coords.first,
-            lng = coords.second,
+            lat = lat,
+            lng = lng,
             address = address,
             audioUrl = null,
             battery = battery,
@@ -191,17 +193,19 @@ class SafetyRepository(
 
         database.sosEventDao().insertEvent(newSos)
 
-        // Insert initial ping
-        database.locationPingDao().insertPing(
-            LocationPingEntity(
-                sosId = sosId,
-                lat = coords.first,
-                lng = coords.second,
-                accuracy = 4.5f,
-                speed = 0.0f,
-                timestamp = System.currentTimeMillis()
+        // Only insert initial location ping if genuine coordinates were established
+        if (lat != null && lng != null) {
+            database.locationPingDao().insertPing(
+                LocationPingEntity(
+                    sosId = sosId,
+                    lat = lat,
+                    lng = lng,
+                    accuracy = 5.0f,
+                    speed = 0.0f,
+                    timestamp = System.currentTimeMillis()
+                )
             )
-        )
+        }
 
         // Start ongoing SOS Foreground Service (background GPS every 10s, 30s MediaRecorder, Supabase/Firebase event broadcast)
         SosForegroundService.start(context, sosId, mode)
@@ -216,14 +220,16 @@ class SafetyRepository(
         val user = database.userDao().getUserSync()
         val battery = deviceHelper.getBatteryLevel()
         val coords = deviceHelper.getCurrentCoordinates()
-        val address = deviceHelper.reverseGeocode(coords.first, coords.second)
+        val lat = coords?.first
+        val lng = coords?.second
+        val address = deviceHelper.reverseGeocode(lat, lng)
         val sosId = "TRIP-${(100000 + (Math.random() * 900000).toInt())}"
 
         val tripEvent = SosEventEntity(
             id = sosId,
             userId = user?.id ?: "user_default",
-            lat = coords.first,
-            lng = coords.second,
+            lat = lat,
+            lng = lng,
             address = address,
             audioUrl = null,
             battery = battery,
@@ -245,42 +251,31 @@ class SafetyRepository(
         tripEvent
     }
 
-    private fun startLivePingsLoop(sosId: String, initialLat: Double, initialLng: Double) {
+    private fun startLivePingsLoop(sosId: String, initialLat: Double?, initialLng: Double?) {
         pingTrackingJob?.cancel()
         pingTrackingJob = scope.launch(Dispatchers.IO) {
-            var currentLat = initialLat
-            var currentLng = initialLng
-            var step = 0
             while (isActive) {
                 delay(10_000L) // GPS tracking every 10 seconds
-                step++
 
-                // Try real location, or simulate subtle path progression
+                // Only record verified real device coordinates
                 val realCoords = try {
                     deviceHelper.getCurrentCoordinates()
                 } catch (e: Exception) {
                     null
                 }
 
-                if (realCoords != null && realCoords != Pair(6.4281, 3.4219)) {
-                    currentLat = realCoords.first
-                    currentLng = realCoords.second
-                } else {
-                    // Small simulated GPS movement along route
-                    currentLat += (Math.random() - 0.5) * 0.0004
-                    currentLng += (Math.random() - 0.5) * 0.0004
-                }
-
-                database.locationPingDao().insertPing(
-                    LocationPingEntity(
-                        sosId = sosId,
-                        lat = currentLat,
-                        lng = currentLng,
-                        accuracy = 3.5f + (Math.random().toFloat() * 2f),
-                        speed = 1.2f + (step * 0.5f),
-                        timestamp = System.currentTimeMillis()
+                if (realCoords != null) {
+                    database.locationPingDao().insertPing(
+                        LocationPingEntity(
+                            sosId = sosId,
+                            lat = realCoords.first,
+                            lng = realCoords.second,
+                            accuracy = 4.0f,
+                            speed = 0.0f,
+                            timestamp = System.currentTimeMillis()
+                        )
                     )
-                )
+                }
             }
         }
     }
@@ -312,8 +307,8 @@ class SafetyRepository(
         label: String,
         crisisType: String,
         distanceMeters: Int,
-        lat: Double,
-        lng: Double
+        lat: Double?,
+        lng: Double?
     ) = withContext(Dispatchers.IO) {
         val alert = HelperAlertEntity(
             id = "alert_${System.currentTimeMillis()}",

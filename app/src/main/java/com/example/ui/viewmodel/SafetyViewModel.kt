@@ -22,6 +22,7 @@ import com.example.data.safety.VoiceKeywordDetector
 import com.example.data.subscription.PaymentInitResult
 import com.example.data.subscription.SubscriptionManager
 import com.example.data.subscription.SubscriptionTier
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -119,6 +120,20 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
 
     val isSubscribed: StateFlow<Boolean> = subscriptionManager.isSubscribed
     val currentTier: StateFlow<SubscriptionTier> = subscriptionManager.currentTier
+    val entitlementStatus: StateFlow<com.example.data.subscription.EntitlementStatus> = subscriptionManager.entitlementStatus
+
+    val allTransactions: Flow<List<com.example.data.model.PaymentTransactionEntity>> = subscriptionManager.allTransactions
+    val allDonations: Flow<List<com.example.data.model.DonationRecordEntity>> = subscriptionManager.allDonations
+    val currentEntitlement: Flow<com.example.data.model.UserEntitlementEntity?> = subscriptionManager.currentEntitlement
+
+    val distributionChannel: com.example.data.config.DistributionChannel
+        get() = subscriptionManager.getDistributionChannel()
+
+    fun setDistributionChannel(channel: com.example.data.config.DistributionChannel) {
+        val cfg = com.example.data.config.AppConfigManager.getInstance(getApplication())
+        cfg.setDistributionChannel(channel)
+        _statusNotice.value = "Payment channel switched to ${channel.name}"
+    }
 
     private val _safeZones = MutableStateFlow(GeofenceSafetyManager.DEFAULT_SAFE_ZONES)
     val safeZones: StateFlow<List<SafeZone>> = _safeZones.asStateFlow()
@@ -145,7 +160,7 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _batteryLevel.value = deviceHelper.getBatteryLevel()
             val coords = deviceHelper.getCurrentCoordinates()
-            val addr = deviceHelper.reverseGeocode(coords.first, coords.second)
+            val addr = deviceHelper.reverseGeocode(coords?.first, coords?.second)
             _currentAddress.value = addr
         }
     }
@@ -239,7 +254,11 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
             val coords = try {
                 deviceHelper.getCurrentCoordinates()
             } catch (e: Exception) {
-                Pair(6.4281, 3.4219)
+                null
+            }
+            if (coords == null) {
+                _statusNotice.value = "GPS unavailable. Cannot compute nearby emergency radar without a location fix."
+                return@launch
             }
             // Generate offset within ~300m - 1200m
             val angle = Math.random() * 2 * Math.PI
@@ -377,40 +396,155 @@ class SafetyViewModel(application: Application) : AndroidViewModel(application) 
         _statusNotice.value = if (isExit) "Simulated Exit from $zoneName" else "Simulated Arrival at $zoneName"
     }
 
-    fun initializePaystackPayment(
+    val isSandboxMode: Boolean
+        get() = subscriptionManager.isSandboxMode
+
+    // --- Subscription Operations ---
+    fun initializeSubscriptionPayment(
         email: String,
         tier: SubscriptionTier,
         onResult: (PaymentInitResult) -> Unit
     ) {
         viewModelScope.launch {
-            val result = subscriptionManager.initializePaystackPayment(email, tier)
+            val result = subscriptionManager.initializeSubscriptionPayment(email, tier)
             onResult(result)
         }
     }
 
-    fun completePaystackPayment(tier: SubscriptionTier, reference: String) {
-        subscriptionManager.completePaymentVerification(tier, reference)
-        _statusNotice.value = "Paystack payment verified! ${tier.title} activated."
-    }
-
-    fun purchaseViaRevenueCat(tier: SubscriptionTier, onComplete: (Boolean) -> Unit) {
+    fun launchPlayStoreSubscription(
+        activity: android.app.Activity,
+        tier: SubscriptionTier,
+        onComplete: (Boolean) -> Unit
+    ) {
         viewModelScope.launch {
-            val success = subscriptionManager.purchaseViaRevenueCat(tier)
-            if (success) {
-                _statusNotice.value = "RevenueCat subscription active: ${tier.title}"
-            }
-            onComplete(success)
+            val launched = subscriptionManager.launchPlayStoreSubscription(activity, tier)
+            onComplete(launched)
         }
     }
 
-    fun restoreSubscriptions() {
-        subscriptionManager.restorePurchases()
-        _statusNotice.value = "Subscriptions restored successfully"
+    fun verifyAndActivateSubscription(
+        tier: SubscriptionTier,
+        reference: String,
+        provider: String = if (distributionChannel == com.example.data.config.DistributionChannel.PLAY_STORE) "GOOGLE_PLAY" else "PAYSTACK",
+        onResult: (com.example.data.subscription.PaymentVerificationResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = subscriptionManager.verifyAndActivatePayment(tier, reference, provider)
+            _statusNotice.value = result.message
+            onResult(result)
+        }
+    }
+
+    // --- Optional Assistance Services ---
+    fun initializeServicePayment(
+        email: String,
+        service: com.example.data.subscription.PaidAssistanceService,
+        onResult: (PaymentInitResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = subscriptionManager.initializeServicePayment(email, service)
+            onResult(result)
+        }
+    }
+
+    fun launchPlayStoreService(
+        activity: android.app.Activity,
+        service: com.example.data.subscription.PaidAssistanceService,
+        onComplete: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            val launched = subscriptionManager.launchPlayStoreServicePurchase(activity, service)
+            onComplete(launched)
+        }
+    }
+
+    fun verifyAndFulfillService(
+        service: com.example.data.subscription.PaidAssistanceService,
+        reference: String,
+        provider: String = if (distributionChannel == com.example.data.config.DistributionChannel.PLAY_STORE) "GOOGLE_PLAY" else "PAYSTACK",
+        onResult: (com.example.data.subscription.PaymentVerificationResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = subscriptionManager.verifyAndFulfillServicePayment(service, reference, provider)
+            _statusNotice.value = result.message
+            onResult(result)
+        }
+    }
+
+    // --- Voluntary Donations ---
+    fun initializeDonation(
+        email: String,
+        amountNgn: Long,
+        donorName: String,
+        isAnonymous: Boolean,
+        onResult: (PaymentInitResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = subscriptionManager.initializeDonationPayment(email, amountNgn, donorName, isAnonymous)
+            onResult(result)
+        }
+    }
+
+    fun verifyAndRecordDonation(
+        reference: String,
+        amountNgn: Long,
+        donorName: String,
+        message: String = "",
+        isAnonymous: Boolean = false,
+        provider: String = "PAYSTACK",
+        onResult: (com.example.data.subscription.PaymentVerificationResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            val result = subscriptionManager.verifyAndRecordDonation(reference, amountNgn, donorName, message, isAnonymous, provider)
+            _statusNotice.value = result.message
+            onResult(result)
+        }
+    }
+
+    // --- Restore & Manage ---
+    fun restoreSubscriptions(onComplete: ((Boolean, String) -> Unit)? = null) {
+        subscriptionManager.restorePurchases { success, msg ->
+            _statusNotice.value = msg
+            onComplete?.invoke(success, msg)
+        }
+    }
+
+    fun cancelSubscription() {
+        subscriptionManager.cancelSubscription()
+        _statusNotice.value = "Auto-renewal cancelled. Protection remains active until expiration."
     }
 
     fun resetSubscriptionToFree() {
         subscriptionManager.resetToFree()
         _statusNotice.value = "Reset to Community Free plan"
+    }
+
+    // --- Legacy / Backward Compatibility Helpers ---
+    fun initializePaystackPayment(
+        email: String,
+        tier: SubscriptionTier,
+        onResult: (PaymentInitResult) -> Unit
+    ) = initializeSubscriptionPayment(email, tier, onResult)
+
+    fun verifyAndActivatePaystackPayment(
+        tier: SubscriptionTier,
+        reference: String,
+        onResult: (com.example.data.subscription.PaymentVerificationResult) -> Unit
+    ) = verifyAndActivateSubscription(tier, reference, "PAYSTACK", onResult)
+
+    fun completePaystackPayment(tier: SubscriptionTier, reference: String) {
+        viewModelScope.launch {
+            subscriptionManager.verifyAndActivatePayment(tier, reference, "PAYSTACK")
+            _statusNotice.value = "Paystack payment verified! ${tier.title} activated."
+        }
+    }
+
+    fun purchaseViaRevenueCat(tier: SubscriptionTier, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val res = subscriptionManager.verifyAndActivatePayment(tier, "RC_${System.currentTimeMillis()}", "REVENUECAT")
+            _statusNotice.value = res.message
+            onComplete(res.isSuccess)
+        }
     }
 
     fun updatePins(realPin: String, panicPin: String) {

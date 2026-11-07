@@ -65,8 +65,8 @@ import com.example.ui.theme.SafeGreen
 
 @Composable
 fun LiveSafetyMap(
-    lat: Double,
-    lng: Double,
+    lat: Double? = null,
+    lng: Double? = null,
     pings: List<LocationPingEntity> = emptyList(),
     isTrackingActive: Boolean = false,
     modifier: Modifier = Modifier,
@@ -188,22 +188,31 @@ fun LiveSafetyMap(
                 // If in Helper view or if helperAlerts exist, plot distress locations of people needing help
                 if (helperAlerts.isNotEmpty()) {
                     helperAlerts.forEach { alert ->
-                        val dLatKm = (alert.lat - lat) * 111.0
-                        val latRad = Math.toRadians(lat)
-                        val dLngKm = (alert.lng - lng) * 111.0 * kotlin.math.cos(latRad)
-                        val distKm = kotlin.math.sqrt(dLatKm * dLatKm + dLngKm * dLngKm)
+                        val alertLat = alert.lat
+                        val alertLng = alert.lng
+                        val relX: Float
+                        val relY: Float
+                        if (lat != null && lng != null && alertLat != null && alertLng != null) {
+                            val dLatKm = (alertLat - lat) * 111.0
+                            val latRad = Math.toRadians(lat)
+                            val dLngKm = (alertLng - lng) * 111.0 * kotlin.math.cos(latRad)
+                            val distKm = kotlin.math.sqrt(dLatKm * dLatKm + dLngKm * dLngKm)
 
-                        // Scale so 2.0 km maps to maxRadius
-                        val scale = maxRadius / 2.0
-                        val relX = if (distKm > 0.05) {
-                            (dLngKm * scale).coerceIn(-maxRadius * 0.85, maxRadius * 0.85).toFloat()
+                            // Scale so 2.0 km maps to maxRadius
+                            val scale = maxRadius / 2.0
+                            relX = if (distKm > 0.05) {
+                                (dLngKm * scale).coerceIn(-maxRadius * 0.85, maxRadius * 0.85).toFloat()
+                            } else {
+                                (maxRadius * 0.4f)
+                            }
+                            relY = if (distKm > 0.05) {
+                                (-dLatKm * scale).coerceIn(-maxRadius * 0.85, maxRadius * 0.85).toFloat()
+                            } else {
+                                (-maxRadius * 0.35f)
+                            }
                         } else {
-                            (maxRadius * 0.4f)
-                        }
-                        val relY = if (distKm > 0.05) {
-                            (-dLatKm * scale).coerceIn(-maxRadius * 0.85, maxRadius * 0.85).toFloat()
-                        } else {
-                            (-maxRadius * 0.35f)
+                            relX = (maxRadius * 0.4f)
+                            relY = (-maxRadius * 0.35f)
                         }
 
                         val alertPos = Offset(center.x + relX, center.y + relY)
@@ -334,17 +343,14 @@ fun LiveSafetyMap(
                     .border(1.dp, BeaconCyan.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
                     .clickable {
                         val targetAlert = activeAlertSelection
-                        if (targetAlert != null && onLocationClick != null) {
+                        val clickLat = targetAlert?.lat ?: lat
+                        val clickLng = targetAlert?.lng ?: lng
+                        if (clickLat != null && clickLng != null && onLocationClick != null) {
                             onLocationClick(
-                                targetAlert.lat,
-                                targetAlert.lng,
-                                "Distress Victim: ${targetAlert.crisisType} (${targetAlert.distanceMeters}m)"
-                            )
-                        } else if (onLocationClick != null) {
-                            onLocationClick(
-                                lat,
-                                lng,
-                                if (isTrackingActive) "Active SOS Incident" else "My Live Location"
+                                clickLat,
+                                clickLng,
+                                if (targetAlert != null) "Distress Victim: ${targetAlert.crisisType} (${targetAlert.distanceMeters}m)"
+                                else if (isTrackingActive) "Active SOS Incident" else "My Live Location"
                             )
                         }
                     }
@@ -391,11 +397,15 @@ fun LiveSafetyMap(
                         modifier = Modifier
                             .testTag("live_distress_alert_banner")
                             .clickable {
-                                onLocationClick?.invoke(
-                                    currentTarget.lat,
-                                    currentTarget.lng,
-                                    "Victim Needs Help: ${currentTarget.crisisType} (${currentTarget.distanceMeters}m away)"
-                                )
+                                val tLat = currentTarget.lat
+                                val tLng = currentTarget.lng
+                                if (tLat != null && tLng != null) {
+                                    onLocationClick?.invoke(
+                                        tLat,
+                                        tLng,
+                                        "Victim Needs Help: ${currentTarget.crisisType} (${currentTarget.distanceMeters}m away)"
+                                    )
+                                }
                             }
                     ) {
                         Row(
@@ -468,17 +478,13 @@ fun LiveSafetyMap(
                     .background(Color(0xE6060B17))
                     .clickable {
                         val targetAlert = activeAlertSelection
-                        if (targetAlert != null && onLocationClick != null) {
+                        val clickLat = targetAlert?.lat ?: lat
+                        val clickLng = targetAlert?.lng ?: lng
+                        if (clickLat != null && clickLng != null && onLocationClick != null) {
                             onLocationClick(
-                                targetAlert.lat,
-                                targetAlert.lng,
-                                "Distress Target: ${targetAlert.crisisType}"
-                            )
-                        } else if (onLocationClick != null) {
-                            onLocationClick(
-                                lat,
-                                lng,
-                                if (isTrackingActive) "Active SOS Coordinates" else "Current Coordinates"
+                                clickLat,
+                                clickLng,
+                                if (targetAlert != null) "Distress Target: ${targetAlert.crisisType}" else if (isTrackingActive) "Active SOS Coordinates" else "Current Coordinates"
                             )
                         }
                     }
@@ -487,22 +493,25 @@ fun LiveSafetyMap(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val displayLat = activeAlertSelection?.lat ?: lat
+                val displayLng = activeAlertSelection?.lng ?: lng
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.GpsFixed,
                         contentDescription = "GPS Coordinates",
-                        tint = if (isTrackingActive || helperAlerts.isNotEmpty()) CrimsonPrimary else BeaconCyan,
+                        tint = if (displayLat == null) AlertAmber else if (isTrackingActive || helperAlerts.isNotEmpty()) CrimsonPrimary else BeaconCyan,
                         modifier = Modifier.size(13.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "%.4f° N, %.4f° E".format(
-                            activeAlertSelection?.lat ?: lat,
-                            activeAlertSelection?.lng ?: lng
-                        ),
+                        text = if (displayLat != null && displayLng != null) {
+                            "%.4f° N, %.4f° E".format(displayLat, displayLng)
+                        } else {
+                            "LOCATION UNAVAILABLE"
+                        },
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = Color.White
+                        color = if (displayLat == null) AlertAmber else Color.White
                     )
                 }
 
@@ -510,15 +519,15 @@ fun LiveSafetyMap(
                     Icon(
                         imageVector = Icons.Default.Map,
                         contentDescription = "Open in Google Maps",
-                        tint = SafeGreen,
+                        tint = if (displayLat != null) SafeGreen else Color.Gray,
                         modifier = Modifier.size(13.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Tap to open map",
+                        text = if (displayLat != null) "Tap to open map" else "GPS Unavailable",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = SafeGreen
+                        color = if (displayLat != null) SafeGreen else Color.Gray
                     )
                 }
             }

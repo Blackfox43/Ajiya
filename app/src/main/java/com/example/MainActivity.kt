@@ -60,6 +60,8 @@ import com.example.ui.viewmodel.SafetyViewModel
 import com.google.firebase.FirebaseApp
 
 class MainActivity : ComponentActivity() {
+    private var syncManager: com.example.data.sync.OfflineEmergencySyncManager? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
@@ -69,12 +71,27 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "FirebaseApp initialization failed", e)
         }
+
+        try {
+            val db = com.example.data.db.AppDatabase.getInstance(this)
+            val dispatcher = com.example.data.network.SosRemoteDispatcher(this)
+            syncManager = com.example.data.sync.OfflineEmergencySyncManager(this, db, dispatcher)
+            syncManager?.startListening()
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "OfflineEmergencySyncManager initialization failed", e)
+        }
+
         enableEdgeToEdge()
         setContent {
             AjiyaTheme {
                 AjiyaApp()
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        syncManager?.stopListening()
     }
 }
 

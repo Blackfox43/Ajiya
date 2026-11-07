@@ -22,6 +22,7 @@ data class SmsDeliveryResult(
     val phone: String,
     val isSuccess: Boolean,
     val channel: String, // "TERMII_API" or "CELLULAR_FALLBACK" or "SYSTEM_SMS_INTENT"
+    val deliveryStatus: String, // "DELIVERED", "SENT", "FAILED", "PENDING"
     val detail: String
 )
 
@@ -47,8 +48,17 @@ class TermiiSmsGateway(
         .build()
 
     /**
+     * Checks if a genuine production Termii API key has been configured.
+     */
+    fun isTermiiConfigured(): Boolean {
+        return !apiKey.isNullOrBlank() &&
+                !apiKey.startsWith("TLR_TERMI_KEY_LIVE_MOCK") &&
+                !apiKey.contains("mock")
+    }
+
+    /**
      * Sends SMS to list of recipient phone numbers.
-     * Tries Termii Cloud API first; if offline or network fails, uses cellular baseband SmsManager.
+     * Tries Termii Cloud API first if configured; if offline or unconfigured, uses cellular baseband SmsManager.
      */
     suspend fun broadcastEmergencySms(
         recipients: List<String>,
@@ -60,33 +70,44 @@ class TermiiSmsGateway(
             val phone = sanitizePhoneNumber(rawPhone)
             var deliveredViaTermii = false
 
-            // 1. Attempt Termii API
-            try {
-                val payload = JSONObject().apply {
-                    put("to", phone)
-                    put("from", senderId)
-                    put("sms", messageText)
-                    put("type", "plain")
-                    put("channel", "generic")
-                    put("api_key", apiKey)
-                }
-
-                val request = Request.Builder()
-                    .url(apiUrl)
-                    .post(payload.toString().toRequestBody(jsonMediaType))
-                    .build()
-
-                httpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        Log.i(tag, "Termii SMS delivered to $phone: HTTP ${response.code}")
-                        results.add(SmsDeliveryResult(phone, true, "TERMII_API", "Delivered via Termii Cloud"))
-                        deliveredViaTermii = true
-                    } else {
-                        Log.w(tag, "Termii API returned ${response.code} for $phone. Switching to cellular fallback.")
+            // 1. Attempt Termii API only if configured
+            if (isTermiiConfigured()) {
+                try {
+                    val payload = JSONObject().apply {
+                        put("to", phone)
+                        put("from", senderId)
+                        put("sms", messageText)
+                        put("type", "plain")
+                        put("channel", "generic")
+                        put("api_key", apiKey)
                     }
+
+                    val request = Request.Builder()
+                        .url(apiUrl)
+                        .post(payload.toString().toRequestBody(jsonMediaType))
+                        .build()
+
+                    httpClient.newCall(request).execute().use { response ->
+                        val respBody = response.body?.string() ?: ""
+                        val isSuccessAck = response.isSuccessful && (
+                                respBody.contains("\"code\":\"ok\"") ||
+                                respBody.contains("\"message\":\"Successfully Sent\"") ||
+                                respBody.contains("\"message_id\"") ||
+                                response.code in 200..202
+                        )
+                        if (isSuccessAck) {
+                            Log.i(tag, "Termii SMS delivered to $phone: HTTP ${response.code}")
+                            results.add(SmsDeliveryResult(phone, true, "TERMII_API", "DELIVERED", "Delivered via Termii Cloud"))
+                            deliveredViaTermii = true
+                        } else {
+                            Log.w(tag, "Termii API rejected with ${response.code} for $phone: $respBody. Switching to cellular.")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Network offline or Termii call failed for $phone: ${e.message}. Using cellular fallback.")
                 }
-            } catch (e: Exception) {
-                Log.w(tag, "Network offline or Termii call failed for $phone: ${e.message}. Using cellular fallback.")
+            } else {
+                Log.d(tag, "Termii API key not configured. Using native cellular SMS fallback.")
             }
 
             // 2. Offline Cellular Fallback via Native SmsManager
@@ -103,7 +124,8 @@ class TermiiSmsGateway(
                             phone = phone,
                             isSuccess = cellularSuccess,
                             channel = "CELLULAR_FALLBACK",
-                            detail = if (cellularSuccess) "Dispatched via Cellular SMS (Offline)" else "Failed cellular dispatch"
+                            deliveryStatus = if (cellularSuccess) "SENT" else "FAILED",
+                            detail = if (cellularSuccess) "Dispatched via Cellular SMS (Baseband)" else "Cellular transmission failed"
                         )
                     )
                 } else {
@@ -113,6 +135,7 @@ class TermiiSmsGateway(
                             phone = phone,
                             isSuccess = true,
                             channel = "SYSTEM_SMS_INTENT",
+                            deliveryStatus = "PENDING",
                             detail = "Prepared default system SMS intent for emergency broadcast"
                         )
                     )

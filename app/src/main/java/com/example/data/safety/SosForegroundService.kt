@@ -374,13 +374,13 @@ class SosForegroundService : Service() {
             var event = database.sosEventDao().getById(sosId)
 
             if (event == null) {
-                // In case event was not pre-inserted, create it
+                // In case event was not pre-inserted, create it with location unavailable until GPS locks
                 event = SosEventEntity(
                     id = sosId,
                     userId = user?.id ?: "user_default",
-                    lat = 6.4281,
-                    lng = 3.4219,
-                    address = "Victoria Island, Lagos",
+                    lat = null,
+                    lng = null,
+                    address = "Location Unavailable (Searching GPS...)",
                     audioUrl = null,
                     battery = 85,
                     status = "active",
@@ -390,25 +390,38 @@ class SosForegroundService : Service() {
                 database.sosEventDao().insertEvent(event)
             }
 
-            // Dispatch to Supabase and Firebase Cloud Notification
+            // Dispatch to Supabase (if configured) and Firebase Cloud Notification / Firestore
             remoteDispatcher.dispatchSosEvent(event, user, contacts)
 
             // Dispatch Offline/Online Emergency SMS via Termii API + Cellular Fallback
             val contactPhones = contacts.map { it.phone }
+            val now = System.currentTimeMillis()
             if (contactPhones.isNotEmpty()) {
                 val userName = user?.name ?: "Ajiya User"
                 val trackingLink = "https://ajiya.network/live/$sosId"
+                val locationText = if (event.lat != null && event.lng != null) event.address else "Location Unavailable (Searching GPS...)"
                 val smsMessage = "AJIYA SOS EMERGENCY: $userName needs immediate assistance! Crisis Mode: $mode. " +
-                        "Location: ${event.address}. Battery: ${event.battery}%. Live Tracking: $trackingLink"
-                TermiiSmsGateway(applicationContext).broadcastEmergencySms(contactPhones, smsMessage)
+                        "Location: $locationText. Battery: ${event.battery}%. Live Tracking: $trackingLink"
+                val smsResults = TermiiSmsGateway(applicationContext).broadcastEmergencySms(contactPhones, smsMessage)
+
+                smsResults.forEach { result ->
+                    val matchingContact = contacts.find { it.phone.replace(Regex("[^0-9]"), "").endsWith(result.phone.replace(Regex("[^0-9]"), "").takeLast(8)) }
+                    if (matchingContact != null) {
+                        val statusStr = if (result.isSuccess) {
+                            if (result.channel == "TERMII_API") "DELIVERED" else "SENT"
+                        } else {
+                            "FAILED"
+                        }
+                        database.trustedContactDao().updateDeliveryStatus(matchingContact.id, statusStr, now)
+                    }
+                }
+                database.sosEventDao().updateDeliveryStatus(sosId, "DELIVERED")
             }
 
-            // Update lastNotifiedTimestamp for all trusted contacts
-            val now = System.currentTimeMillis()
             contacts.forEach { contact ->
                 database.trustedContactDao().updateLastNotified(contact.id, now)
             }
-            Log.i(TAG, "Emergency broadcast and Termii SMS sent to ${contacts.size} trusted contacts.")
+            Log.i(TAG, "Emergency broadcast and SMS evaluated for ${contacts.size} trusted contacts.")
         }
     }
 
