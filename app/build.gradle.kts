@@ -67,7 +67,12 @@ android {
 }
 
 tasks.withType<Test> {
-  systemProperty("robolectric.dependency.dir", "/home/appuser/.m2/repository/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7")
+  // Use ROBOLECTRIC_DEPENDENCY_DIR if defined, or local container path only if it exists
+  val customDir = System.getenv("ROBOLECTRIC_DEPENDENCY_DIR")?.let { file(it) }
+    ?: file("/home/appuser/.m2/repository/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7")
+  if (customDir.exists()) {
+    systemProperty("robolectric.dependency.dir", customDir.absolutePath)
+  }
   failFast = true
   timeout.set(Duration.ofMinutes(2))
   testLogging {
